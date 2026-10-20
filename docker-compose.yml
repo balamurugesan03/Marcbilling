@@ -1,0 +1,35 @@
+# docker compose up -d --build   then   docker compose exec app npm run seed   (first run only, wipes data!)
+services:
+  mongo:
+    image: mongo:7
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    volumes: [mongo-data:/data/db]
+    healthcheck:
+      # initiates the single-node replica set on first start (required for transactions)
+      test: ["CMD", "mongosh", "--quiet", "--eval", "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongo:27017' }] }).ok }"]
+      interval: 5s
+      retries: 30
+    restart: unless-stopped
+
+  app:
+    build: .
+    depends_on:
+      mongo: { condition: service_healthy }
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGO_URI: mongodb://mongo:27017/fashion_pos?replicaSet=rs0
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET in .env}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in .env}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5000}
+      REQUIRE_TRANSACTIONS: "true"
+    ports: ["5000:5000"]
+    volumes:
+      - uploads:/app/server/uploads
+      - backups:/app/server/backups
+    restart: unless-stopped
+
+volumes:
+  mongo-data:
+  uploads:
+  backups:

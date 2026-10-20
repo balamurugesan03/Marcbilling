@@ -1,0 +1,33 @@
+// /api/companies, /api/branches, /api/roles, /api/permissions, /api/users
+const express = require('express');
+const c = require('../controllers/org.controller');
+const validate = require('../middleware/validate');
+const { permit } = require('../middleware/auth');
+const { imageUpload } = require('../middleware/upload');
+const v = require('../validators');
+
+const companies = express.Router();
+companies.get('/current', c.getCompany);
+companies.put('/current', permit('branch.manage'), validate(v.org.company), c.updateCompany);
+companies.post('/current/logo', permit('branch.manage'), imageUpload.single('logo'), c.uploadLogo);
+
+const branches = express.Router();
+branches.get('/', c.listBranches);
+branches.post('/', permit('branch.manage'), validate(v.org.branch), c.createBranch);
+branches.put('/:id', permit('branch.manage'), validate(v.org.branch.partial()), c.updateBranch);
+
+const roles = express.Router();
+roles.get('/', permit('role.manage', 'user.manage'), c.listRoles);
+roles.post('/', permit('role.manage'), validate(v.org.role), c.createRole);
+roles.put('/:id', permit('role.manage'), validate(v.org.role.partial()), c.updateRole);
+roles.delete('/:id', permit('role.manage'), c.deleteRole);
+
+const permissions = express.Router();
+permissions.get('/', permit('role.manage', 'user.manage'), c.listPermissions);
+
+const users = express.Router();
+users.get('/', permit('user.manage'), c.listUsers);
+users.post('/', permit('user.manage'), validate(v.org.userCreate), c.createUser);
+users.put('/:id', permit('user.manage'), validate(v.org.userUpdate), c.updateUser);
+
+module.exports = { companies, branches, roles, permissions, users };

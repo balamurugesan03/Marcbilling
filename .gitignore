@@ -1,0 +1,15 @@
+node_modules/
+client/dist/
+server/.env
+server/uploads/*
+!server/uploads/.gitkeep
+server/backups/*
+!server/backups/.gitkeep
+.mongo-data/
+*.log
+.DS_Store
+client-install.log
+backup-dummy-data-*/
+.env
+.env.*
+!.env.example
