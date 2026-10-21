@@ -18,13 +18,20 @@ module.exports = {
     res.json({ success: true, data });
   }),
   refresh: asyncHandler(async (req, res) => {
-    // no session cookie: answer quietly so the login screen doesn't log a 401 on every load
-    if (!req.cookies[COOKIE]) return res.json({ success: true, data: null });
-    try {
-      const { refreshToken, ...data } = await authService.refresh(req, req.cookies[COOKIE]);
+    const send = ({ refreshToken, ...data }) => {
       res.cookie(COOKIE, refreshToken, cookieOpts());
-      res.json({ success: true, data });
+      res.json({ success: true, data: { ...data, authDisabled: env.authDisabled } });
+    };
+    // AUTH_DISABLED: no valid session means sign the visitor straight in instead of showing the login screen
+    if (!req.cookies[COOKIE]) {
+      if (env.authDisabled) return send(await authService.autoLogin(req));
+      // no session cookie: answer quietly so the login screen doesn't log a 401 on every load
+      return res.json({ success: true, data: null });
+    }
+    try {
+      send(await authService.refresh(req, req.cookies[COOKIE]));
     } catch (e) {
+      if (env.authDisabled) return send(await authService.autoLogin(req));
       res.clearCookie(COOKIE, { path: '/api/auth' });
       throw e;
     }

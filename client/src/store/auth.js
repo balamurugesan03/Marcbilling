@@ -13,6 +13,7 @@ export const useAuth = create((set, get) => ({
   branches: [],
   branchId: null, // selected branch id or 'all'
   settings: null,
+  authDisabled: false, // server runs with AUTH_DISABLED: no login/logout in the UI
 
   can: (...perms) => {
     const p = get().user?.role?.permissions || [];
@@ -27,7 +28,7 @@ export const useAuth = create((set, get) => ({
     let branchId = get().branchId || saved;
     const valid = branchId === 'all' ? user.role.allBranches : branches.some((b) => b._id === branchId);
     if (!valid) branchId = user.defaultBranchId || branches[0]?._id || (user.role.allBranches ? 'all' : null);
-    set({ accessToken: data.accessToken, user, company: data.company, branches, branchId, ready: true });
+    set({ accessToken: data.accessToken, user, company: data.company, branches, branchId, authDisabled: Boolean(data.authDisabled), ready: true });
   },
 
   async bootstrap() {

@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 /**
  * End-to-end business flow test against a running API (seeded database).
- *   npm run seed && npm start   (in another terminal)
+ *   npm run seed:demo && npm start   (in another terminal)
  *   npm run test:e2e
  *
  * Covers: product → barcode → labels → purchase → receive → scan → sale (split payment) → print data →
@@ -54,11 +54,21 @@ const stockOf = async (token, branch, variantId) => (await call(token, 'GET', `/
 
 (async () => {
   console.log(`\nMARC POS E2E against ${BASE}\n`);
-  const admin = await login('admin', 'admin123');
+  const admin = await login('admin@marc.com', 'admin@123');
   const A = admin.accessToken;
   const ngl = admin.branches.find((b) => b.code === 'NGL')._id;
   const tvm = admin.branches.find((b) => b.code === 'TVM')._id;
-  const cashierLogin = await login('cashier', 'cashier123');
+  // The seed only creates the admin, so make throwaway staff logins for the RBAC checks.
+  const roles = ok(await call(A, 'GET', '/roles'), 'roles');
+  const tag = Date.now().toString(36);
+  const mkStaff = async (role) => {
+    const username = `e2e-${role}-${tag}`;
+    ok(await call(A, 'POST', '/users', { name: `E2E ${role}`, username, password: 'e2e-pass', roleId: roles.find((r) => r.code === role)._id, branchIds: [ngl], defaultBranchId: ngl }), `create ${role}`);
+    return username;
+  };
+  const cashierUser = await mkStaff('cashier');
+  const managerUser = await mkStaff('branch_manager');
+  const cashierLogin = await login(cashierUser, 'e2e-pass');
   const C = cashierLogin.accessToken;
   const ctx = {};
 
@@ -250,7 +260,7 @@ const stockOf = async (token, branch, variantId) => (await call(token, 'GET', `/
   });
 
   await step('Manager cancels a bill → stock & payments reversed', async () => {
-    const mgr = (await login('manager', 'manager123')).accessToken;
+    const mgr = (await login(managerUser, 'e2e-pass')).accessToken;
     const s = ok(await call(C, 'POST', '/sales', { items: [{ variantId: ctx.vM._id, qty: 1 }], payments: [{ mode: 'cash', amount: 999 }] }), 'sale');
     const before = await stockOf(A, ngl, ctx.vM._id);
     ok(await call(mgr, 'POST', `/sales/${s.sale._id}/cancel`, { reason: 'customer left' }), 'cancel');

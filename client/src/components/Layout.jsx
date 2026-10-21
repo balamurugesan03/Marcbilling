@@ -176,7 +176,7 @@ function ChangePassword({ open, onClose }) {
 }
 
 export default function Layout() {
-  const { user, company, branches, branchId, setBranch, logout, can, accessToken } = useAuth();
+  const { user, company, branches, branchId, setBranch, logout, can, accessToken, authDisabled } = useAuth();
   const { theme, toggleTheme } = useUI();
   const [openGroup, setOpenGroup] = useState(null);
   const [mobileNav, setMobileNav] = useState(false);
@@ -243,8 +243,12 @@ export default function Layout() {
             {menu && (
               <div className="absolute right-0 z-40 mt-1 w-52 rounded-xl border border-ink-200 bg-white p-1.5 shadow-xl dark:border-ink-700 dark:bg-ink-900" onMouseLeave={() => setMenu(false)}>
                 <div className="px-2.5 py-2 text-xs text-ink-500"><Building2 className="mr-1 inline h-3.5 w-3.5" />{company?.name}</div>
-                <button type="button" className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm hover:bg-ink-50 dark:hover:bg-ink-800" onClick={() => { setMenu(false); setPwd(true); }}><KeyRound className="h-4 w-4" /> Change password</button>
-                <button type="button" className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10" onClick={async () => { await logout(); navigate('/login'); }}><LogOut className="h-4 w-4" /> Logout</button>
+                {!authDisabled && (
+                  <>
+                    <button type="button" className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm hover:bg-ink-50 dark:hover:bg-ink-800" onClick={() => { setMenu(false); setPwd(true); }}><KeyRound className="h-4 w-4" /> Change password</button>
+                    <button type="button" className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10" onClick={async () => { await logout(); navigate('/login'); }}><LogOut className="h-4 w-4" /> Logout</button>
+                  </>
+                )}
               </div>
             )}
           </div>

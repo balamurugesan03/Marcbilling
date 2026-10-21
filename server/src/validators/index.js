@@ -25,7 +25,7 @@ const org = {
   branch: z.object({ name: str(80).min(2), code: str(10).min(2).toUpperCase(), gstin, phone: optStr(20), email: optStr(), address, stateCode: optStr(5), managerName: optStr(), active: z.boolean().optional(), isDefault: z.boolean().optional() }),
   role: z.object({ name: str(60).min(2), code: optStr(60), description: optStr(), permissions: z.array(z.string()).default([]), allBranches: z.boolean().default(false), maxDiscountPercent: z.coerce.number().min(0).max(100).default(0) }),
   userCreate: z.object({
-    name: str(80).min(2), username: str(40).min(3).toLowerCase().regex(/^[a-z0-9._-]+$/, 'Username may contain letters, numbers, . _ -'),
+    name: str(80).min(2), username: str(40).min(3).toLowerCase().regex(/^[a-z0-9._@-]+$/, 'Username may contain letters, numbers, . _ - @'),
     email: optStr(), mobile: optStr(15), password: z.string().min(6, 'Password must be at least 6 characters'),
     roleId: id, branchIds: z.array(id).default([]), defaultBranchId: optId, active: z.boolean().default(true),
   }),

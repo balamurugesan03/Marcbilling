@@ -1,11 +1,12 @@
 /* eslint-disable no-console, no-await-in-loop */
 /**
- * Demo seed: company, 3 branches, roles, users, categories, brands, suppliers, products with
- * size/colour variants + barcodes, purchases (stock), customers, expenses and ~30 days of sales.
- * All stock-affecting data goes through the real services so the Stock + StockLedger stay consistent.
+ * Wipes the database and sets it up again.
  *
- *   npm run seed            -> wipes the database and seeds
- *   npm run seed -- --no-sales   -> skip historical demo sales
+ *   npm run seed       -> clean start: permissions, roles, settings, the company, one branch and the admin login
+ *   npm run seed:demo  -> plus demo data: 3 branches, categories, brands, suppliers, products with size/colour
+ *                         variants + barcodes, purchases (stock), customers, expenses and ~30 days of sales
+ *                         (needed by `npm run test:e2e`). Add `-- --no-sales` to skip the demo sales.
+ * Demo stock goes through the real services so the Stock + StockLedger stay consistent.
  */
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
@@ -30,6 +31,7 @@ function ctxFor(user, role, branchId) {
 
 async function main() {
   await connectDB();
+  const demo = process.argv.includes('--demo');
   const withSales = !process.argv.includes('--no-sales');
   console.log('[seed] dropping database', mongoose.connection.name);
   await mongoose.connection.dropDatabase();
@@ -37,35 +39,40 @@ async function main() {
   settingsService.clearCache();
   await M.Permission.insertMany(PERMISSIONS);
 
-  const company = await M.Company.create({
+  // Clean start: only what the app needs; the store fills in GSTIN, address etc. in Administration.
+  const company = await M.Company.create(!demo ? {
+    name: 'MARC', legalName: 'MARC', logoUrl: '/logo-print.png', code: 'MARC',
+    address: { state: 'Tamil Nadu', stateCode: '33' },
+  } : {
     name: 'MARC', legalName: 'MARC', logoUrl: '/logo-print.png', code: 'FSPL', gstin: '33AABCF1234K1Z5', pan: 'AABCF1234K',
     email: 'accounts@fashionstore.in', phone: '04652-220011', website: 'www.fashionstore.in',
     address: { line1: '12, Main Road', line2: 'Vadasery', city: 'Nagercoil', state: 'Tamil Nadu', stateCode: '33', pincode: '629001' },
   });
   await M.Settings.create({ companyId: company._id });
 
-  const branches = await M.Branch.insertMany([
+  const branches = await M.Branch.insertMany(!demo ? [
+    { companyId: company._id, name: 'Main Branch', code: 'MAIN', stateCode: '33', isDefault: true, address: { state: 'Tamil Nadu', stateCode: '33' } },
+  ] : [
     { companyId: company._id, name: 'Nagercoil', code: 'NGL', gstin: '33AABCF1234K1Z5', phone: '04652-220011', stateCode: '33', isDefault: true, managerName: 'Ravi Kumar', address: { line1: '12, Main Road, Vadasery', city: 'Nagercoil', state: 'Tamil Nadu', stateCode: '33', pincode: '629001' } },
     { companyId: company._id, name: 'Trivandrum', code: 'TVM', gstin: '32AABCF1234K1Z7', phone: '0471-2330044', stateCode: '32', managerName: 'Anil Nair', address: { line1: 'MG Road, Statue', city: 'Thiruvananthapuram', state: 'Kerala', stateCode: '32', pincode: '695001' } },
     { companyId: company._id, name: 'Chennai', code: 'CHN', gstin: '33AABCF1234K1Z5', phone: '044-24345566', stateCode: '33', managerName: 'Priya S', address: { line1: '45, Usman Road, T. Nagar', city: 'Chennai', state: 'Tamil Nadu', stateCode: '33', pincode: '600017' } },
   ]);
-  const [ngl, tvm, chn] = branches;
+  const [ngl] = branches;
 
   const roles = {};
   for (const r of DEFAULT_ROLES) roles[r.code] = await M.Role.create({ ...r, companyId: company._id });
 
-  const mkUser = async (name, username, password, role, branchIds) => M.User.create({
-    companyId: company._id, name, username, passwordHash: await bcrypt.hash(password, 10), roleId: roles[role]._id,
-    branchIds: branchIds.map((b) => b._id), defaultBranchId: branchIds[0]?._id, mobile: `98${rint(10000000, 99999999)}`,
+  // The only seeded login; staff accounts are added from Admin → Users.
+  const admin = await M.User.create({
+    companyId: company._id, name: 'Administrator', username: 'admin@marc.com', email: 'admin@marc.com', passwordHash: await bcrypt.hash('admin@123', 10),
+    roleId: roles.super_admin._id, branchIds: branches.map((b) => b._id), defaultBranchId: ngl._id,
   });
-  const admin = await mkUser('Administrator', 'admin', 'admin123', 'super_admin', branches);
-  await mkUser('Company Admin', 'companyadmin', 'company123', 'company_admin', branches);
-  await mkUser('Ravi Kumar (Manager)', 'manager', 'manager123', 'branch_manager', [ngl]);
-  const cashier = await mkUser('Meena (Cashier)', 'cashier', 'cashier123', 'cashier', [ngl]);
-  const cashier2 = await mkUser('Karthik (Cashier)', 'cashier2', 'cashier123', 'cashier', [chn]);
-  const cashier3 = await mkUser('Anjali (Cashier)', 'cashier3', 'cashier123', 'cashier', [tvm]);
-  await mkUser('Suresh (Stock)', 'stock', 'stock123', 'stock_manager', branches);
-  await mkUser('Lakshmi (Accounts)', 'accountant', 'accounts123', 'accountant', branches);
+
+  if (!demo) {
+    console.log('\n[seed] done (clean). Login: admin@marc.com / admin@123 (Super Admin)');
+    await mongoose.disconnect();
+    return;
+  }
 
   const adminCtx = (b) => ctxFor(admin.toObject(), roles.super_admin.toObject(), b?._id);
 
@@ -120,10 +127,10 @@ async function main() {
   ];
 
   const created = [];
-  for (const p of PRODUCTS) {
+  for (const [i, p] of PRODUCTS.entries()) {
     const c = CATS[p.cat];
     const prod = await productService.create(adminCtx(ngl), {
-      name: p.name, categoryId: String(cat[p.cat].parent._id), subCategoryId: String(cat[p.cat].subs[p.sub]._id), brandId: String(brand[p.brand]._id),
+      productCode: `P${101 + i}`, name: p.name, categoryId: String(cat[p.cat].parent._id), subCategoryId: String(cat[p.cat].subs[p.sub]._id), brandId: String(brand[p.brand]._id),
       gender: p.gender, season: 'All Season', hsnCode: c.hsn, gstRate: p.gst ?? c.gst, unit: 'PCS', purchasePrice: p.cost, sellingPrice: p.sp, mrp: p.mrp,
       supplierId: String(suppliers[p.sup]._id), fabric: p.fabric, pattern: p.pattern, status: 'active',
       variants: p.colors.flatMap((color) => p.sizes.map((size) => ({ color, size }))),
@@ -163,15 +170,13 @@ async function main() {
   for (const n of ['Rent', 'Salary', 'Electricity', 'Transport', 'Maintenance', 'Other Expenses']) expCats[n] = await M.ExpenseCategory.create({ companyId: company._id, name: n });
 
   if (withSales) {
-    const cashierFor = new Map([[String(ngl._id), cashier], [String(chn._id), cashier2], [String(tvm._id), cashier3]]);
     const allVariants = created.flatMap((c) => c.prod.variants);
     let count = 0;
     for (let d = 29; d >= 0; d -= 1) {
       for (const b of branches) {
         const bills = rint(1, d === 0 ? 4 : 3);
         for (let k = 0; k < bills; k += 1) {
-          const u = cashierFor.get(String(b._id));
-          const ctx = ctxFor(u.toObject(), roles.cashier.toObject(), b._id);
+          const ctx = adminCtx(b);
           const lines = [];
           const used = new Set();
           for (let n = 0; n < rint(1, 3); n += 1) {
@@ -220,17 +225,7 @@ async function main() {
     }
   }
 
-  console.log('\n[seed] done. Demo logins:');
-  console.table([
-    { role: 'Super Admin', username: 'admin', password: 'admin123', branches: 'All' },
-    { role: 'Company Admin', username: 'companyadmin', password: 'company123', branches: 'All' },
-    { role: 'Branch Manager', username: 'manager', password: 'manager123', branches: 'Nagercoil' },
-    { role: 'Cashier', username: 'cashier', password: 'cashier123', branches: 'Nagercoil' },
-    { role: 'Cashier', username: 'cashier2', password: 'cashier123', branches: 'Chennai' },
-    { role: 'Cashier', username: 'cashier3', password: 'cashier123', branches: 'Trivandrum' },
-    { role: 'Stock Manager', username: 'stock', password: 'stock123', branches: 'All (assigned)' },
-    { role: 'Accountant', username: 'accountant', password: 'accounts123', branches: 'All' },
-  ]);
+  console.log('\n[seed] done. Login: admin@marc.com / admin@123 (Super Admin, all branches)');
   const sample = created[0].prod.variants.slice(0, 3).map((v) => ({ product: created[0].prod.name, variant: `${v.color} / ${v.size}`, sku: v.sku, barcode: v.barcode }));
   console.log('Sample barcodes to scan in POS:');
   console.table(sample);

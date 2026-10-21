@@ -14,6 +14,9 @@ const env = {
   backupDir: path.resolve(__dirname, '../../', process.env.BACKUP_DIR || 'backups'),
   clientDist: path.resolve(__dirname, '../../../client/dist'),
   requireTransactions: process.env.REQUIRE_TRANSACTIONS === 'true',
+  // No login screen: every visitor is signed in as this user (anyone with the URL gets their access).
+  authDisabled: process.env.AUTH_DISABLED === 'true',
+  autoLoginUser: (process.env.AUTO_LOGIN_USER || 'admin@marc.com').toLowerCase().trim(),
 };
 
 if (env.nodeEnv === 'production' && env.jwtAccessSecret.startsWith('dev-')) {

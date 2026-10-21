@@ -79,6 +79,14 @@ async function refresh(req, token) {
   return { accessToken: signAccess(user), refreshToken: newToken, ...(await profile(user._id)) };
 }
 
+/** AUTH_DISABLED mode: open a session for the configured user without a password. */
+async function autoLogin(req) {
+  const user = await User.findOne({ username: env.autoLoginUser, active: true });
+  if (!user) throw ApiError.unauthorized(`Auto-login user ${env.autoLoginUser} not found or disabled`);
+  const refreshToken = await issueRefresh(user, req);
+  return { accessToken: signAccess(user), refreshToken, ...(await profile(user._id)) };
+}
+
 async function logout(req, token) {
   if (token) await RefreshToken.updateOne({ tokenHash: hash(token) }, { revokedAt: new Date() });
   if (req.user) await audit.log(req, { action: 'auth.logout', entity: 'User', entityId: req.user._id, refNo: req.user.username });
@@ -94,4 +102,4 @@ async function changePassword(req, { currentPassword, newPassword }) {
   await audit.log(req, { action: 'user.password_change', entity: 'User', entityId: user._id, refNo: user.username });
 }
 
-module.exports = { login, refresh, logout, profile, changePassword };
+module.exports = { login, refresh, autoLogin, logout, profile, changePassword };

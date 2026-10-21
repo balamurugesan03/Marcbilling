@@ -8,7 +8,9 @@
     "start": "node src/server.js",
     "dev": "nodemon --watch src src/server.js",
     "seed": "node src/seed/seed.js",
+    "seed:demo": "node src/seed/seed.js --demo",
     "db:dev": "node scripts/dev-mongo.js",
+    "admin:set": "node scripts/set-admin.js",
     "test:e2e": "node tests/e2e.flow.js"
   },
   "engines": {

@@ -5,11 +5,6 @@ import { LogIn, ScanBarcode, Store, BarChart3 } from 'lucide-react';
 import { useAuth } from '../store/auth';
 import { errMsg } from '../lib/api';
 
-const DEMO = [
-  ['admin', 'admin123', 'Super Admin'], ['manager', 'manager123', 'Branch Manager'], ['cashier', 'cashier123', 'Cashier'],
-  ['stock', 'stock123', 'Stock Manager'], ['accountant', 'accounts123', 'Accountant'],
-];
-
 export default function Login() {
   const login = useAuth((s) => s.login);
   const [f, setF] = useState({ username: '', password: '' });
@@ -54,14 +49,6 @@ export default function Login() {
             <div><label className="label" htmlFor="u">Username</label><input id="u" className="input py-2.5" autoFocus autoComplete="username" value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} required /></div>
             <div><label className="label" htmlFor="p">Password</label><input id="p" type="password" className="input py-2.5" autoComplete="current-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} required /></div>
             <button className="btn-primary w-full py-2.5" disabled={busy}><LogIn className="h-4 w-4" /> {busy ? 'Signing in…' : 'Sign in'}</button>
-          </div>
-          <div className="mt-8 rounded-xl border border-dashed border-ink-300 p-3 dark:border-ink-700">
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-500">Demo accounts</div>
-            <div className="flex flex-wrap gap-1.5">
-              {DEMO.map(([u, p, r]) => (
-                <button type="button" key={u} className="btn-secondary btn-sm" onClick={() => setF({ username: u, password: p })}>{r}</button>
-              ))}
-            </div>
           </div>
         </form>
       </div>

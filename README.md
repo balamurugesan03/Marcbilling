@@ -23,8 +23,8 @@ npm run db:dev
 # 2. Configure the API (first time only)
 cp server/.env.example server/.env      # then set the two JWT secrets
 
-# 3. Demo data (WIPES the database)
-npm run seed
+# 3. Set up the database (WIPES it): clean start with just the company, one branch and the admin login
+npm run seed           # or `npm run seed:demo` for sample products, customers and 30 days of sales
 
 # 4. Run API (port 5000) and web app (port 5173) in two terminals
 npm run dev:server
@@ -33,17 +33,12 @@ npm run dev:client
 
 Open http://localhost:5173.
 
-| Role | Username | Password | Branches |
-|---|---|---|---|
-| Super Admin | `admin` | `admin123` | All |
-| Company Admin | `companyadmin` | `company123` | All |
-| Branch Manager | `manager` | `manager123` | Nagercoil |
-| Cashier | `cashier` / `cashier2` / `cashier3` | `cashier123` | Nagercoil / Chennai / Trivandrum |
-| Stock Manager | `stock` | `stock123` | All (assigned) |
-| Accountant | `accountant` | `accounts123` | All |
+Log in as `admin@marc.com` / `admin@123` (Super Admin, all branches) and add staff accounts from Admin → Users.
+Change this password after the first login.
 
-Sample barcodes to scan: `8901230000032` (Round Neck T-Shirt Black/L), `8901230000025` (Black/M).
-The seed prints more. In POS, `3*8901230000032` adds 3 units in one scan.
+After a clean seed, fill in the company and branch details in Administration, then add products.
+With `seed:demo`, sample barcodes to scan: `8901230000032` (Round Neck T-Shirt Black/L), `8901230000025` (Black/M).
+In POS, `3*8901230000032` adds 3 units in one scan.
 
 > Already running MongoDB as a standalone server (no replica set)? The API still starts and works, but logs a
 > warning that **transactions are disabled**. Use `npm run db:dev`, or convert your server to a replica set
@@ -52,7 +47,7 @@ The seed prints more. In POS, `3*8901230000032` adds 3 units in one scan.
 ### Tests
 
 ```bash
-npm run test:e2e     # API running + seeded DB required
+npm run test:e2e     # API running + `npm run seed:demo` database required
 ```
 
 The end-to-end suite (`server/tests/e2e.flow.js`) walks the full business flow and verifies the rules.
@@ -187,7 +182,7 @@ JWT_REFRESH_SECRET=<another 64 random hex chars>
 CORS_ORIGINS=https://pos.yourstore.in
 
 docker compose up -d --build
-docker compose exec app npm run seed      # OPTIONAL demo data — wipes the database
+docker compose exec app npm run seed      # first run only: clean setup + admin login — wipes the database
 ```
 
 The app (API + built web client) listens on port 5000. MongoDB runs as a single-node replica set with a
@@ -227,9 +222,8 @@ persistent volume. Put a TLS reverse proxy in front (see Nginx below).
      }
    }
    ```
-4. **First login**: run `npm run seed` only for a demo. For a real store, seed once, then change the
-   company / branches / users in Administration and **change every default password**. Alternatively, empty the
-   demo products and data before go-live.
+4. **First login**: run `npm run seed` once (clean setup, no demo data), then fill in the company / branches /
+   users in Administration and **change the admin password**. Never seed a live database: it wipes everything.
 5. **Backups**: Administration → Backup creates gzipped full-database snapshots in `server/backups`.
    Download them regularly or sync that folder off-site. Also schedule `mongodump` for point-in-time recovery.
    Restoring always takes an automatic safety backup first.
