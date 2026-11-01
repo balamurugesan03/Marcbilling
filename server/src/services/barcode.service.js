@@ -1,13 +1,22 @@
-const { Barcode, ProductVariant, Stock } = require('../models');
+const { Barcode, ProductVariant, Product, Category, Stock } = require('../models');
 const ApiError = require('../utils/ApiError');
 const { validateBarcode, buildBarcode, detectFormat } = require('../utils/barcode');
 const settingsService = require('./settings.service');
 const audit = require('./audit.service');
 
-/** Allocates a new unique auto barcode for the company (skips codes already taken manually). */
-async function allocate(companyId, session, format) {
+/**
+ * Allocates a new unique auto barcode for the company (skips codes already taken manually).
+ * Accessories use their own prefix + sequence so they never mix with dress barcodes.
+ */
+async function allocate(companyId, session, format, { accessory = false } = {}) {
   const settings = await settingsService.get(companyId);
-  const cfg = { ...settings.barcode, defaultFormat: format || settings.barcode.defaultFormat };
+  const b = settings.barcode || {};
+  const cfg = {
+    ...b,
+    defaultFormat: format || b.defaultFormat,
+    ean13Prefix: accessory ? (b.accessoryEan13Prefix || '890124') : b.ean13Prefix,
+    code128Prefix: accessory ? (b.accessoryCode128Prefix || 'AC') : b.code128Prefix,
+  };
   for (let i = 0; i < 50; i += 1) {
     const prefix = cfg.defaultFormat === 'EAN13' ? cfg.ean13Prefix : cfg.code128Prefix;
     const seq = await settingsService.nextSeq(`${companyId}:barcode:${cfg.defaultFormat}:${prefix}`, session);
@@ -15,6 +24,13 @@ async function allocate(companyId, session, format) {
     if (!(await Barcode.exists({ companyId, code: bc.code }).session(session))) return bc;
   }
   throw ApiError.conflict('Could not allocate a unique barcode; check barcode settings');
+}
+
+/** True when the product's category or sub-category is marked as Accessory. */
+async function isAccessoryProduct(companyId, product, session) {
+  const ids = [product.categoryId, product.subCategoryId].filter(Boolean);
+  if (!ids.length) return false;
+  return !!(await Category.exists({ companyId, _id: { $in: ids }, isAccessory: true }).session(session));
 }
 
 /** Validates a manual barcode and ensures it is not used by another variant. */
@@ -83,8 +99,14 @@ async function bulkGenerate(req, { variantIds, format }) {
   const results = await runInTransaction(async (session) => {
     const variants = await ProductVariant.find({ _id: { $in: variantIds }, companyId: req.companyId, deletedAt: null }).session(session);
     const out = [];
+    const accessoryByProduct = new Map();
     for (const v of variants) {
-      const bc = await allocate(req.companyId, session, format);
+      const pid = String(v.productId);
+      if (!accessoryByProduct.has(pid)) {
+        const p = await Product.findById(v.productId).select('categoryId subCategoryId').session(session).lean();
+        accessoryByProduct.set(pid, p ? await isAccessoryProduct(req.companyId, p, session) : false);
+      }
+      const bc = await allocate(req.companyId, session, format, { accessory: accessoryByProduct.get(pid) });
       const old = v.barcode;
       await reassign(req.companyId, v, { code: bc.code, format: bc.format, source: 'auto', session });
       v.barcode = bc.code;
@@ -119,4 +141,4 @@ async function labels(req, { items }) {
   return labelsOut;
 }
 
-module.exports = { allocate, assertAvailable, register, reassign, lookup, validate, bulkGenerate, labels };
+module.exports = { allocate, isAccessoryProduct, assertAvailable, register, reassign, lookup, validate, bulkGenerate, labels };

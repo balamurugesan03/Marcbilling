@@ -91,7 +91,8 @@ async function buildVariant(req, session, product, refs, v, takenSkus) {
     format = format || detectFormat(code);
     await barcodeService.assertAvailable(req.companyId, code, format, { session });
   } else {
-    const bc = await barcodeService.allocate(req.companyId, session, v.barcodeFormat);
+    const accessory = !!(refs.cat?.isAccessory || refs.sub?.isAccessory);
+    const bc = await barcodeService.allocate(req.companyId, session, v.barcodeFormat, { accessory });
     code = bc.code;
     format = bc.format;
     source = 'auto';

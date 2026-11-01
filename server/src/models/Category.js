@@ -8,6 +8,7 @@ const categorySchema = new Schema({
   parentId: { type: Schema.Types.ObjectId, ref: 'Category', default: null },
   defaultGstRate: { type: Number, enum: [0, 5, 12, 18, 28], default: 5 },
   defaultHsnCode: String,
+  isAccessory: { type: Boolean, default: false }, // accessories get their own barcode series (Settings → Barcode)
   active: { type: Boolean, default: true },
 }, { timestamps: true });
 

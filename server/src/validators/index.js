@@ -36,7 +36,7 @@ const org = {
 };
 
 const master = {
-  category: z.object({ name: str(80).min(1), code: optStr(20), parentId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : v || null)), defaultGstRate: gst.optional(), defaultHsnCode: optStr(10), active: z.boolean().optional() }),
+  category: z.object({ name: str(80).min(1), code: optStr(20), parentId: z.union([id, z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : v || null)), defaultGstRate: gst.optional(), defaultHsnCode: optStr(10), isAccessory: z.boolean().optional(), active: z.boolean().optional() }),
   brand: z.object({ name: str(80).min(1), description: optStr(), active: z.boolean().optional() }),
   supplier: z.object({
     name: str(120).min(2), code: optStr(20), contactPerson: optStr(), mobile: optStr(15), email: optStr(), gstin, address, stateCode: optStr(5),

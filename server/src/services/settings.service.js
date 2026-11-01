@@ -22,6 +22,11 @@ const SECTIONS = ['invoice', 'tax', 'barcode', 'printer', 'payment', 'discount',
 async function update(req, section, data) {
   if (!SECTIONS.includes(section)) throw require('../utils/ApiError').badRequest('Unknown settings section');
   const before = await get(req.companyId);
+  if (section === 'barcode') {
+    const b = { ...before.barcode, ...data };
+    if (String(b.ean13Prefix || '') === String(b.accessoryEan13Prefix || '')) throw require('../utils/ApiError').badRequest('Accessories EAN-13 prefix must be different from the dress prefix');
+    if (String(b.code128Prefix || '').toUpperCase() === String(b.accessoryCode128Prefix || '').toUpperCase()) throw require('../utils/ApiError').badRequest('Accessories Code128 prefix must be different from the dress prefix');
+  }
   const set = {};
   for (const [k, v] of Object.entries(data)) set[`${section}.${k}`] = v;
   const doc = await Settings.findOneAndUpdate({ companyId: req.companyId }, { $set: set }, { new: true, runValidators: true, upsert: true }).lean();

@@ -91,9 +91,9 @@ async function main() {
   };
   const cat = {};
   for (const [name, c] of Object.entries(CATS)) {
-    const parent = await M.Category.create({ companyId: company._id, name, defaultGstRate: c.gst, defaultHsnCode: c.hsn });
+    const parent = await M.Category.create({ companyId: company._id, name, defaultGstRate: c.gst, defaultHsnCode: c.hsn, isAccessory: name === 'Accessories' });
     cat[name] = { parent, subs: {} };
-    for (const s of c.subs) cat[name].subs[s] = await M.Category.create({ companyId: company._id, name: s, parentId: parent._id, defaultGstRate: c.gst, defaultHsnCode: c.hsn });
+    for (const s of c.subs) cat[name].subs[s] = await M.Category.create({ companyId: company._id, name: s, parentId: parent._id, defaultGstRate: c.gst, defaultHsnCode: c.hsn, isAccessory: name === 'Accessories' });
   }
 
   const brandNames = ['FS Basics', 'Urban Threads', 'Denim Co', 'Silk Heritage', 'Ethnic Charm', 'Little Stars', 'ComfortFit', 'StepUp', 'Classic Gents', 'Trendz'];

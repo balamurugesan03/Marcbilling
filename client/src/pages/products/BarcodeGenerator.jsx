@@ -65,7 +65,7 @@ export default function BarcodeGenerator() {
           <button className="btn-secondary w-full" disabled={!check.code}>Check</button>
           {check.result && <div className={`rounded-lg p-3 text-sm ${check.result.valid ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10' : 'bg-rose-50 text-rose-700 dark:bg-rose-500/10'}`}>{check.result.format}: {check.result.message}</div>}
           {check.result?.valid && <div className="rounded bg-white p-2 [&_svg]:mx-auto" dangerouslySetInnerHTML={{ __html: barcodeSvg(check.code, { format: check.result.format }) }} />}
-          <div className="text-xs text-ink-500">Prefix: EAN-13 <b>{settings?.barcode?.ean13Prefix}</b> · Code128 <b>{settings?.barcode?.code128Prefix}</b> (change in Settings → Barcode)</div>
+          <div className="text-xs text-ink-500">Dress prefix: EAN-13 <b>{settings?.barcode?.ean13Prefix}</b> · Code128 <b>{settings?.barcode?.code128Prefix}</b><br />Accessories prefix: EAN-13 <b>{settings?.barcode?.accessoryEan13Prefix}</b> · Code128 <b>{settings?.barcode?.accessoryCode128Prefix}</b> (change in Settings → Barcode)</div>
         </form>
       </div>
     </div>

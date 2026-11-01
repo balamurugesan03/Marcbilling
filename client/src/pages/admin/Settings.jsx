@@ -23,6 +23,7 @@ const SECTIONS = [
   { key: 'barcode', label: 'Barcode', fields: [
     S('defaultFormat', 'Default barcode format', [{ value: 'EAN13', label: 'EAN-13 (13 digits with check digit)' }, { value: 'CODE128', label: 'Code128 (alphanumeric)' }]),
     X('ean13Prefix', 'EAN-13 prefix (digits)', 'e.g. 890123 — remaining digits are a running sequence'), X('code128Prefix', 'Code128 prefix'),
+    X('accessoryEan13Prefix', 'Accessories: EAN-13 prefix', 'Separate series for categories marked Accessory, e.g. 890124 — must differ from the dress prefix'), X('accessoryCode128Prefix', 'Accessories: Code128 prefix', 'e.g. AC'),
     S('labelSize', 'Default label size', Object.entries(LABEL_SIZES).map(([value, v]) => ({ value, label: v.label }))), N('labelColumns', 'Labels across (roll)'),
     T('showStoreName', 'Label: store name'), T('showProductName', 'Label: product name'), T('showSku', 'Label: SKU'), T('showSizeColor', 'Label: size / colour'), T('showMrp', 'Label: MRP'), T('showSellingPrice', 'Label: selling price'),
   ] },
