@@ -87,11 +87,17 @@ const purchase = {
 };
 
 const saleItem = z.object({ variantId: id, qty, rate: money.optional(), discount: money.optional(), discountPercent: z.coerce.number().min(0).max(100).optional() });
+// POS bill lines: negative qty = item returned at the counter inside the bill
+const saleQty = z.coerce.number().int('Quantity must be a whole number').min(-100000).max(100000).refine((n) => n !== 0, 'Quantity cannot be zero');
+const billItem = saleItem.extend({ qty: saleQty });
 const sale = {
-  create: z.object({ customerId: optId, items: z.array(saleItem).min(1, 'Add at least one item').max(500), billDiscount: money.optional(), payments, notes: optStr(500), heldBillId: optId }),
+  create: z.object({
+    customerId: optId, items: z.array(billItem).min(1, 'Add at least one item').max(500), billDiscount: money.optional(), payments, notes: optStr(500), heldBillId: optId,
+    refundMode: z.enum(['cash', 'card', 'upi', 'bank', 'store_credit']).optional(), // when returns make the bill total negative
+  }),
   edit: z.object({ customerId: z.union([id, z.literal(''), z.null()]).optional(), notes: optStr(500), payments: payments.optional() }),
   cancel: z.object({ reason: str(300).min(3, 'Cancellation reason is required') }),
-  hold: z.object({ customerId: optId, items: z.array(z.any()).min(1, 'Nothing to hold').max(500), billDiscount: money.optional(), amount: money, note: optStr(200) }),
+  hold: z.object({ customerId: optId, items: z.array(z.any()).min(1, 'Nothing to hold').max(500), billDiscount: money.optional(), amount: z.coerce.number(), note: optStr(200) }),
   return: z.object({
     saleId: id, items: z.array(z.object({ saleItemId: id, qty: z.coerce.number().int().min(0) })).min(1),
     refundMode: z.enum(['cash', 'card', 'upi', 'bank', 'store_credit', 'adjust_outstanding']).default('cash'), reason: str(300).min(2, 'Return reason is required'),

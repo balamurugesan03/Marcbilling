@@ -15,7 +15,7 @@ const MONEY_MODES = ['cash', 'card', 'upi', 'bank'];
  * Validates and prices the cart server-side (never trusts client totals) and enforces
  * price-change / discount permissions.
  */
-async function priceCart(req, session, { items, billDiscount = 0, customer, branch, settings }) {
+async function priceCart(req, session, { items, billDiscount = 0, customer, branch, settings, allowReturns = false }) {
   if (!items?.length) throw ApiError.badRequest('Add at least one item to the bill');
   const ids = [...new Set(items.map((i) => String(i.variantId)))];
   const variants = await ProductVariant.find({ _id: { $in: ids }, companyId: req.companyId }).session(session).lean();
@@ -26,9 +26,12 @@ async function priceCart(req, session, { items, billDiscount = 0, customer, bran
   const raw = items.map((it) => {
     const v = vm.get(String(it.variantId));
     if (!v || v.deletedAt) throw ApiError.badRequest('Item not found in catalogue');
-    if (v.status !== 'active') throw ApiError.badRequest(`${v.productName} (${v.sku}) is inactive and cannot be sold`);
     const qty = Number(it.qty);
-    if (!Number.isInteger(qty) || qty <= 0) throw ApiError.badRequest(`Invalid quantity for ${v.sku}`);
+    if (!Number.isInteger(qty) || qty === 0 || (qty < 0 && !allowReturns)) throw ApiError.badRequest(`Invalid quantity for ${v.sku}`);
+    const isReturn = qty < 0; // item returned at the counter inside this bill
+    if (isReturn && !req.perms.has('sale.return')) throw ApiError.forbidden('You are not allowed to take returns');
+    if (!isReturn && v.status !== 'active') throw ApiError.badRequest(`${v.productName} (${v.sku}) is inactive and cannot be sold`);
+    if (isReturn && (Number(it.discount) > 0 || Number(it.discountPercent) > 0)) throw ApiError.badRequest(`Return item ${v.sku} cannot have a discount`);
     const rate = it.rate != null ? round2(it.rate) : v.sellingPrice;
     if (rate < 0) throw ApiError.badRequest(`Invalid rate for ${v.sku}`);
     if (rate !== round2(v.sellingPrice) && !canChangePrice) {
@@ -54,11 +57,13 @@ async function priceCart(req, session, { items, billDiscount = 0, customer, bran
   const interState = isInterState(settings.tax, branch, customer);
   const result = computeTotals(raw, { taxInclusive: settings.tax.taxInclusive, interState, billDiscount });
   const { totals } = result;
-  if (totals.discount > 0 && totals.subtotal > 0) {
-    const pct = round2((totals.discount / totals.subtotal) * 100);
+  // discount limits are measured against the sold lines only (return lines would shrink the base)
+  const soldGross = round2(result.lines.reduce((a, l) => a + (l.gross > 0 ? l.gross : 0), 0));
+  if (totals.discount > 0 && soldGross > 0) {
+    const pct = round2((totals.discount / soldGross) * 100);
     const roleMax = req.role.maxDiscountPercent ?? 0;
     if (pct > roleMax + 0.001) throw ApiError.forbidden(`Unauthorized discount: ${pct}% exceeds your limit of ${roleMax}%`);
-    if (billDiscount > 0 && round2((totals.billDiscount / totals.subtotal) * 100) > settings.discount.maxBillDiscountPercent) {
+    if (billDiscount > 0 && round2((totals.billDiscount / soldGross) * 100) > settings.discount.maxBillDiscountPercent) {
       throw ApiError.badRequest(`Bill discount exceeds the maximum of ${settings.discount.maxBillDiscountPercent}%`);
     }
   }
@@ -115,6 +120,22 @@ function settlePayments({ payments, grandTotal, customer, settings, internalCred
   return { lines: lines.filter((p) => p.amount > 0), tendered: total, change, credit: round2(credit), storeCredit: round2(storeCredit), loyaltyAmt: round2(loyaltyAmt), redeemPoints };
 }
 
+/**
+ * Counter returns made the bill total negative: the shop pays the difference back.
+ * Stored as one payment line with a negative amount (cash / card / UPI / bank refund, or store credit).
+ */
+function settleRefund({ refundMode = 'cash', grandTotal, customer, settings }) {
+  const refund = round2(-grandTotal);
+  if (refundMode === 'store_credit') {
+    if (!customer) throw ApiError.badRequest('Select a customer to refund as store credit');
+  } else if (!MONEY_MODES.includes(refundMode)) throw ApiError.badRequest('Invalid refund mode');
+  else if (!settings.payment.enabledModes.includes(refundMode)) throw ApiError.badRequest(`Payment mode "${refundMode}" is not enabled`);
+  return {
+    lines: [{ mode: refundMode, amount: -refund }], tendered: -refund, change: 0, credit: 0,
+    storeCredit: refundMode === 'store_credit' ? -refund : 0, loyaltyAmt: 0, redeemPoints: 0,
+  };
+}
+
 /** Creates a sale inside an existing transaction. Used by POS billing and exchanges. */
 async function createSaleInternal(session, req, data, { saleType = 'sale', internalCredit = 0, exchangeId } = {}) {
   const branchId = req.branchId;
@@ -127,8 +148,10 @@ async function createSaleInternal(session, req, data, { saleType = 'sale', inter
   const customer = data.customerId ? await Customer.findOne({ _id: data.customerId, companyId: req.companyId }).session(session) : null;
   if (data.customerId && !customer) throw ApiError.badRequest('Customer not found');
 
-  const { lines, totals, interState } = await priceCart(req, session, { items: data.items, billDiscount: data.billDiscount, customer, branch, settings });
-  const pay = settlePayments({ payments: data.payments, grandTotal: totals.grandTotal, customer, settings, internalCredit });
+  const { lines, totals, interState } = await priceCart(req, session, { items: data.items, billDiscount: data.billDiscount, customer, branch, settings, allowReturns: saleType === 'sale' });
+  const pay = totals.grandTotal < 0
+    ? settleRefund({ refundMode: data.refundMode, grandTotal: totals.grandTotal, customer, settings })
+    : settlePayments({ payments: data.payments, grandTotal: totals.grandTotal, customer, settings, internalCredit });
 
   const invoiceNumber = await settingsService.nextNumber(req.companyId, 'invoice', { branchId, session });
   const stockMap = await stockService.getStockMap(branchId, lines.map((l) => l.variantId), session);
@@ -157,14 +180,16 @@ async function createSaleInternal(session, req, data, { saleType = 'sale', inter
   for (const l of lines) {
     await stockService.applyMovement({
       session, companyId: req.companyId, branchId, variant: { _id: l.variantId, productId: l.productId, productName: l.productName, sku: l.sku, size: l.size, color: l.color },
-      qty: -l.qty, type: 'sale', refType: 'Sale', refId: sale._id, refNo: invoiceNumber, userId: req.user._id, costPrice: costOf(l),
+      qty: -l.qty, type: l.qty < 0 ? 'sale_return' : 'sale', refType: 'Sale', refId: sale._id, refNo: invoiceNumber, userId: req.user._id, costPrice: costOf(l),
+      note: l.qty < 0 ? 'Returned at counter' : undefined,
     });
   }
 
   for (const p of pay.lines) {
     if (MONEY_MODES.includes(p.mode)) {
+      const refund = p.amount < 0;
       await paymentService.record(session, req, {
-        branchId, direction: 'in', type: 'sale', mode: p.mode, amount: p.amount, reference: p.reference,
+        branchId, direction: refund ? 'out' : 'in', type: refund ? 'sale_refund' : 'sale', mode: p.mode, amount: Math.abs(p.amount), reference: p.reference,
         partyType: customer ? 'customer' : 'none', partyId: customer?._id, partyName: customer?.name, refType: 'Sale', refId: sale._id, refNo: invoiceNumber,
       });
     }
@@ -293,6 +318,7 @@ async function edit(req, id, data) {
       await Payment.updateMany({ refId: sale._id, type: 'sale' }, { $set: { partyId: nw?._id, partyName: nw?.name, partyType: nw ? 'customer' : 'none' } }, { session });
     }
     if (data.payments) {
+      if (sale.payments.some((p) => p.amount < 0)) throw ApiError.badRequest('Refund bills: the refund mode cannot be changed');
       const fixed = sale.payments.filter((p) => !MONEY_MODES.includes(p.mode));
       const editable = round2(sale.payments.filter((p) => MONEY_MODES.includes(p.mode)).reduce((a, p) => a + p.amount, 0));
       const lines = data.payments.filter((p) => p.amount > 0).map((p) => ({ mode: p.mode, amount: round2(p.amount), reference: p.reference }));
@@ -336,8 +362,10 @@ async function cancel(req, id, reason) {
     await SaleItem.updateMany({ saleId: id }, { $set: { status: 'cancelled' } }, { session });
     for (const p of sale.payments) {
       if (MONEY_MODES.includes(p.mode)) {
+        // a refund line (negative, from counter returns) is reversed as money coming back in
+        const wasRefund = p.amount < 0;
         await paymentService.record(session, req, {
-          branchId: sale.branchId, direction: 'out', type: 'sale_cancel', mode: p.mode, amount: p.amount, reference: p.reference,
+          branchId: sale.branchId, direction: wasRefund ? 'in' : 'out', type: wasRefund ? 'sale' : 'sale_cancel', mode: p.mode, amount: Math.abs(p.amount), reference: p.reference,
           partyType: sale.customerId ? 'customer' : 'none', partyId: sale.customerId, partyName: sale.customer?.name, refType: 'Sale', refId: sale._id, refNo: sale.invoiceNumber, notes: reason,
         });
       }

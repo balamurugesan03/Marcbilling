@@ -59,7 +59,7 @@ export function barcodeSvg(value, { format = 'CODE128', height = 40, width = 1.6
 const BILL_MODE_NAMES = { cash: 'CASH', upi: 'GPAY', card: 'CARD', bank: 'BANK', credit: 'CREDIT', store_credit: 'STORE CREDIT', loyalty: 'LOYALTY', exchange: 'EXCHANGE', adjust_outstanding: 'ADJUSTED' };
 export function billModeTitle(payments = []) {
   const byMode = {};
-  payments.filter((p) => Number(p.amount) > 0).forEach((p) => { byMode[p.mode] = (byMode[p.mode] || 0) + Number(p.amount); });
+  payments.filter((p) => Number(p.amount)).forEach((p) => { byMode[p.mode] = (byMode[p.mode] || 0) + Math.abs(Number(p.amount)); }); // refunds (minus) count too
   const modes = Object.keys(byMode).sort((a, b) => byMode[b] - byMode[a]);
   return `${modes.length ? modes.map((x) => BILL_MODE_NAMES[x] || String(x).toUpperCase()).join(' + ') : 'CASH'} BILL`;
 }
@@ -75,6 +75,7 @@ export function receiptHtml(inv, { width = '80', duplicate = false } = {}) {
   const t = sale.totals;
   const gstin = branch?.gstin || company?.gstin;
   const mrpTotal = items.reduce((a, i) => a + (Number(i.mrp) || Number(i.rate) || 0) * i.qty, 0);
+  const returned = items.filter((i) => i.qty < 0).reduce((a, i) => a + (Number(i.amount) || 0), 0); // minus value
   const received = sale.payments.reduce((a, p) => a + (Number(p.amount) || 0), 0) + (Number(sale.changeReturned) || 0);
   // GST split by rate: 0 / 5 / 12 % always listed, any other rate on the bill is added
   const rates = [...new Set([0, 5, 12, ...items.map((i) => Number(i.gstRate) || 0)])].sort((a, b) => a - b);
@@ -135,14 +136,15 @@ export function receiptHtml(inv, { width = '80', duplicate = false } = {}) {
     </table>
     <table class="box items" style="margin-top:3px">
       <thead><tr><th>Code Product</th><th>MRP</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
-      <tbody>${items.map((i) => `<tr><td>${esc([i.sku, i.productName, i.size].filter(Boolean).join(' '))}</td><td>${m(i.mrp || i.rate)}</td><td>${(Number(i.qty) || 0).toFixed(2)}</td><td>${m(i.rate)}</td><td>${m(i.amount)}</td></tr>`).join('')}</tbody>
+      <tbody>${items.map((i) => `<tr><td>${esc([i.sku, i.productName, i.size].filter(Boolean).join(' '))}${i.qty < 0 ? ' <b>(RETURN)</b>' : ''}</td><td>${m(i.mrp || i.rate)}</td><td>${(Number(i.qty) || 0).toFixed(2)}</td><td>${m(i.rate)}</td><td>${m(i.amount)}</td></tr>`).join('')}</tbody>
     </table>
     <table class="sum">
       ${row('Sub Total', m(t.subtotal))}
       ${row('Discount', m(t.discount))}
       ${row('MRP Total', m(mrpTotal))}
+      ${returned ? row('Return Items', m(returned)) : ''}
       ${t.roundOff ? row('Round Off', m(t.roundOff)) : ''}
-      ${row('Total', `₹${m(t.grandTotal)}`, 'total')}
+      ${t.grandTotal < 0 ? row('Refund', `₹${m(-t.grandTotal)}`, 'total') : row('Total', `₹${m(t.grandTotal)}`, 'total')}
     </table>
     <table class="box gst">
       <tr class="h"><td colspan="2">GST Details</td></tr>
@@ -152,9 +154,8 @@ export function receiptHtml(inv, { width = '80', duplicate = false } = {}) {
     </table>
     <table class="foot">
       ${policy.map((p) => `<tr><td colspan="2" class="b">${esc(p)}</td></tr>`).join('')}
-      ${sale.payments.filter((p) => Number(p.amount) > 0).map((p) => row(`Paid by ${esc(BILL_MODE_NAMES[p.mode] || p.mode)}${p.reference ? ` (${esc(p.reference)})` : ''}`, m(p.amount))).join('')}
-      ${row('Amt.Paid', m(received))}
-      ${row('Balance', m(sale.changeReturned))}
+      ${sale.payments.filter((p) => Number(p.amount)).map((p) => row(`${p.amount < 0 ? 'Refund by' : 'Paid by'} ${esc(BILL_MODE_NAMES[p.mode] || p.mode)}${p.reference ? ` (${esc(p.reference)})` : ''}`, m(Math.abs(p.amount)))).join('')}
+      ${t.grandTotal < 0 ? '' : `${row('Amt.Paid', m(received))}${row('Balance', m(sale.changeReturned))}`}
       ${row('Your Savings', m(savings))}
     </table>
     ${sale.loyaltyEarned ? `<div class="c">Loyalty points earned: ${sale.loyaltyEarned}</div>` : ''}

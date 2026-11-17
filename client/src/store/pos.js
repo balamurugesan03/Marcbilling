@@ -12,7 +12,7 @@ export const usePOS = create(persist((set, get) => ({
 
   addVariant(v, qty = 1) {
     const items = [...get().items];
-    const idx = items.findIndex((i) => i.variantId === v._id && i.rate === v.sellingPrice && !i.discount && !i.discountPercent);
+    const idx = items.findIndex((i) => i.variantId === v._id && i.qty > 0 && i.rate === v.sellingPrice && !i.discount && !i.discountPercent);
     if (idx >= 0) {
       items[idx] = { ...items[idx], qty: items[idx].qty + qty, stock: v.stock ?? items[idx].stock };
       // move the updated line to the top? keep position, but select it
@@ -30,6 +30,12 @@ export const usePOS = create(persist((set, get) => ({
   updateLine(index, patch) {
     const items = get().items.map((l, i) => (i === index ? { ...l, ...patch } : l));
     set({ items });
+  },
+  /** Item returned at the counter: the line flips to a minus quantity (no discount on returns). */
+  toggleReturn(index) {
+    const items = get().items.map((l, i) => (i === index ? { ...l, qty: -l.qty, discount: 0, discountPercent: 0 } : l));
+    set({ items });
+    return items[index];
   },
   removeLine(index) {
     const items = get().items.filter((_, i) => i !== index);

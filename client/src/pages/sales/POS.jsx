@@ -22,7 +22,7 @@ const SHORTCUTS = [
   ['F1', 'Sales / new bill (any page)'], ['F2', 'Sales return (any page)'], ['F3', 'Direct print last bill'], ['F4', 'Purchase entry (any page)'],
   ['F5', 'New product (any page)'], ['F6', 'Reports (any page)'], ['F7', 'Sales summary (any page)'], ['F8', 'Purchase summary (any page)'],
   ['F9', 'Cash payment (any page)'], ['F10', 'Cash receipt (any page)'], ['F11', 'Product search'], ['F12 / Enter', 'Payment'],
-  ['Alt+C', 'Customer search'], ['Alt+N', 'New customer'], ['Alt+H', 'Hold bill'], ['Alt+R', 'Recall bill'], ['Del', 'Remove selected item'],
+  ['R', 'Return selected item (minus)'], ['Alt+C', 'Customer search'], ['Alt+N', 'New customer'], ['Alt+H', 'Hold bill'], ['Alt+R', 'Recall bill'], ['Del', 'Remove selected item'],
   ['Q', 'Change quantity'], ['D', 'Item discount'], ['B', 'Bill discount'], ['E', 'Change rate'], ['↑ / ↓', 'Select item'], ['+ / −', 'Qty of selected (empty scan box)'],
   ['3*CODE', 'Scan with quantity'], ['Esc', 'Close popup'],
 ];
@@ -339,6 +339,48 @@ function PaymentModal({ open, onClose, total, customer, settings, onComplete, bu
   );
 }
 
+/** Counter returns are worth more than the new items: choose how the difference goes back to the customer. */
+function RefundModal({ open, amount, customer, settings, busy, onClose, onComplete }) {
+  const enabled = settings?.payment?.enabledModes || ['cash', 'card', 'upi'];
+  const modes = [...['cash', 'upi', 'card', 'bank'].filter((m) => enabled.includes(m)), ...(customer ? ['store_credit'] : [])];
+  const [mode, setMode] = useState('cash');
+  useEffect(() => { if (open) setMode(modes[0] || 'cash'); }, [open]);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); if (!busy) onComplete(mode); }
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); setMode(modes[(modes.indexOf(mode) + 1) % modes.length]); }
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); setMode(modes[(modes.indexOf(mode) - 1 + modes.length) % modes.length]); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+  return (
+    <Modal open={open} onClose={onClose} title="Refund to customer" size="sm">
+      <div className="rounded-xl bg-rose-50 p-4 text-center text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
+        <div className="text-xs uppercase tracking-wide">Returned items are worth more — give back</div>
+        <div className="text-4xl font-extrabold tabular-nums">{inr(amount)}</div>
+      </div>
+      <div className="label mt-4">Refund by</div>
+      <div className="grid grid-cols-2 gap-2">
+        {modes.map((m) => {
+          const I = MODE_ICONS[m];
+          return (
+            <button key={m} type="button" onClick={() => setMode(m)}
+              className={clsx('flex items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-semibold', mode === m ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-200' : 'border-ink-200 hover:bg-ink-50 dark:border-ink-700 dark:hover:bg-ink-800')}>
+              <I className="h-4 w-4" /> {m === 'upi' ? 'GPay / UPI' : PAYMENT_LABELS[m]}
+            </button>
+          );
+        })}
+      </div>
+      <button type="button" className="btn-success btn-lg mt-4 w-full" disabled={busy} onClick={() => onComplete(mode)}>
+        {busy ? <Spinner className="h-5 w-5 text-white" /> : <CheckCircle2 className="h-5 w-5" />} Refund {inr(amount)} & save <Kbd>↵</Kbd>
+      </button>
+      <div className="mt-2 text-center text-[11px] text-ink-500"><Kbd>←</Kbd> <Kbd>→</Kbd> change mode</div>
+    </Modal>
+  );
+}
+
 function SuccessModal({ data, onClose, onPrint }) {
   useEffect(() => {
     if (!data) return undefined;
@@ -405,7 +447,7 @@ export default function POS() {
   useEffect(() => { if (customer?._id) get(`/customers/${customer._id}`).then((p) => pos.setCustomer(p.customer)).catch(() => pos.setCustomer(null)); }, []);
 
   const addVariant = (v, qty = 1) => {
-    const inCart = items.filter((i) => i.variantId === v._id).reduce((a, i) => a + i.qty, 0);
+    const inCart = items.filter((i) => i.variantId === v._id && i.qty > 0).reduce((a, i) => a + i.qty, 0);
     if (!allowNegative && v.stock != null && inCart + qty > v.stock) {
       beep('err');
       toast.error(`Out of stock: ${v.productName} ${variantLabel(v)} (available ${v.stock})`);
@@ -474,18 +516,26 @@ export default function POS() {
     closeModal();
   };
 
+  const hasReturns = items.some((i) => i.qty < 0);
+  const returnTotal = round2(lines.filter((l) => l.qty < 0).reduce((a, l) => a + l.amount, 0));
+  const soldNet = round2(lines.filter((l) => l.qty > 0).reduce((a, l) => a + l.gross - l.lineDiscount, 0)); // bill discount base
   const openPay = () => {
     if (!items.length) return toast.error('Add items to the bill first');
-    if (totals.grandTotal <= 0) return toast.error('Bill total must be greater than zero');
+    if (totals.grandTotal < 0) { setModal('refund'); return null; } // returns are worth more than the new items
+    if (totals.grandTotal === 0) {
+      if (!hasReturns) return toast.error('Bill total must be greater than zero');
+      complete([]); // even exchange through counter returns: nothing to collect
+      return null;
+    }
     setModal('pay');
     return null;
   };
 
-  const complete = async (payments) => {
+  const complete = async (payments, refundMode) => {
     setPaying(true);
     try {
       const inv = await post('/sales', {
-        customerId: customer?._id, billDiscount, payments, heldBillId: pos.heldBillId || undefined,
+        customerId: customer?._id, billDiscount, payments, refundMode, heldBillId: pos.heldBillId || undefined,
         items: items.map((i) => ({ variantId: i.variantId, qty: i.qty, rate: i.rate, discount: i.discount || undefined, discountPercent: i.discountPercent || undefined })),
       });
       pos.clear();
@@ -517,23 +567,32 @@ export default function POS() {
   };
 
   const needLine = (fn) => () => { if (!sel) { toast.error('Select an item first'); return; } fn(); };
+  // +/- change how many pieces: on a return line (minus qty) "+" means one more piece returned
   const changeQty = (i, delta) => {
     const line = items[i];
     if (!line) return;
-    const q = line.qty + delta;
-    if (q <= 0) return;
-    const inCart = items.filter((x) => x.variantId === line.variantId).reduce((a, x) => a + x.qty, 0);
-    if (delta > 0 && !allowNegative && line.stock != null && inCart + delta > line.stock) { beep('err'); toast.error(`Only ${line.stock} in stock`); return; }
+    const ret = line.qty < 0;
+    const q = line.qty + (ret ? -delta : delta);
+    if (q === 0 || Math.sign(q) !== Math.sign(line.qty)) return;
+    const inCart = items.filter((x) => x.variantId === line.variantId && x.qty > 0).reduce((a, x) => a + x.qty, 0);
+    if (!ret && delta > 0 && !allowNegative && line.stock != null && inCart + delta > line.stock) { beep('err'); toast.error(`Only ${line.stock} in stock`); return; }
     pos.updateLine(i, { qty: q });
+  };
+  // R: the selected item is being returned by the customer -> minus line (press again to undo)
+  const toggleReturn = () => {
+    if (!sel) { toast.error('Scan the returned item first, then press R'); return; }
+    if (sel.qty > 0 && !can('sale.return')) { toast.error('You are not allowed to take returns'); return; }
+    const line = pos.toggleReturn(selected);
+    if (line.qty < 0) { beep('ok'); toast.success(`${line.productName}: marked as RETURN (−${-line.qty})`); } else toast('Return removed — sold item again');
   };
 
   const anyModal = Boolean(modal || notFound || success);
   const editQty = needLine(() => setModal('qty'));
-  const editDisc = needLine(() => (can('sale.discount') ? setModal('disc') : toast.error('You are not allowed to give discounts')));
+  const editDisc = needLine(() => (sel.qty < 0 ? toast.error('No discount on a return item') : can('sale.discount') ? setModal('disc') : toast.error('You are not allowed to give discounts')));
   const editBillDisc = () => (can('sale.discount') ? (items.length ? setModal('billDisc') : toast.error('Add items first')) : toast.error('You are not allowed to give discounts'));
   const editRate = needLine(() => (can('sale.price_change') ? setModal('rate') : toast.error('You are not allowed to change the selling price')));
   // single-key shortcuts (no Ctrl needed); in the scan box they only fire while it is empty
-  const letterKeys = { q: editQty, d: editDisc, b: editBillDisc, e: editRate };
+  const letterKeys = { q: editQty, d: editDisc, b: editBillDisc, e: editRate, r: toggleReturn };
   useHotkeys({
     // F1 / F2 / F4–F10 are app-wide (see Layout)
     F3: () => printLast(),
@@ -606,10 +665,10 @@ export default function POS() {
                   <thead><tr><th className="w-10">#</th><th>Barcode</th><th>Product</th><th>Size</th><th>Color</th><th className="num w-32">Qty</th><th className="num">Rate</th><th className="num">Disc</th><th className="num">GST</th><th className="num">Amount</th><th className="w-8" /></tr></thead>
                   <tbody>
                     {lines.map((l, i) => (
-                      <tr key={l.key} data-row={i} onClick={() => { pos.select(i); focusScan(); }} className={clsx('cursor-pointer', i === selected && '!bg-brand-50 ring-1 ring-inset ring-brand-300 dark:!bg-brand-500/10 dark:ring-brand-500/40')}>
+                      <tr key={l.key} data-row={i} onClick={() => { pos.select(i); focusScan(); }} className={clsx('cursor-pointer', l.qty < 0 && 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300', i === selected && '!bg-brand-50 ring-1 ring-inset ring-brand-300 dark:!bg-brand-500/10 dark:ring-brand-500/40')}>
                         <td className="text-ink-400">{i + 1}</td>
                         <td className="font-mono text-xs">{l.barcode}</td>
-                        <td className="max-w-[260px] truncate font-medium">{l.productName}<div className="font-mono text-[10px] text-ink-400">{l.sku}</div></td>
+                        <td className="max-w-[260px] truncate font-medium">{l.qty < 0 && <span className="badge-red mr-1.5">RETURN</span>}{l.productName}<div className="font-mono text-[10px] text-ink-400">{l.sku}</div></td>
                         <td>{l.size || '-'}</td>
                         <td>{l.color || '-'}</td>
                         <td className="num">
@@ -622,7 +681,7 @@ export default function POS() {
                         <td className="num">{inr(l.rate)}{l.rate !== l.originalRate && <div className="text-[10px] text-amber-600 line-through">{inr(l.originalRate)}</div>}</td>
                         <td className="num text-rose-600">{l.discountTotal ? `-${inr(l.discountTotal)}` : '-'}</td>
                         <td className="num text-xs text-ink-500">{l.gstRate}%</td>
-                        <td className="num font-semibold">{inr(l.amount)}</td>
+                        <td className={clsx('num font-semibold', l.qty < 0 && 'text-rose-600')}>{inr(l.amount)}</td>
                         <td><button type="button" tabIndex={-1} className="text-ink-400 hover:text-rose-600" onClick={(e) => { e.stopPropagation(); pos.removeLine(i); focusScan(); }}><Trash2 className="h-4 w-4" /></button></td>
                       </tr>
                     ))}
@@ -635,7 +694,7 @@ export default function POS() {
               <span>Qty: <b className="text-ink-800 dark:text-ink-100">{totals.totalQty}</b></span>
               {sel && <span>Selected: <b className="text-ink-800 dark:text-ink-100">{sel.productName} {variantLabel(sel)}</b> · stock {sel.stock ?? '-'}</span>}
               <div className="flex-1" />
-              <span><Kbd>Q</Kbd> Qty</span><span><Kbd>D</Kbd> Disc</span>{can('sale.price_change') && <span><Kbd>E</Kbd> Rate</span>}<span><Kbd>Del</Kbd> Remove</span>
+              <span><Kbd>Q</Kbd> Qty</span><span><Kbd>D</Kbd> Disc</span>{can('sale.return') && <span><Kbd>R</Kbd> Return</span>}{can('sale.price_change') && <span><Kbd>E</Kbd> Rate</span>}<span><Kbd>Del</Kbd> Remove</span>
             </div>
           </div>
         </div>
@@ -678,10 +737,11 @@ export default function POS() {
                 <div className="flex justify-between"><dt className="text-ink-500">GST (CGST {inr(totals.cgst)} + SGST {inr(totals.sgst)})</dt><dd className="tabular-nums">{inr(totals.totalTax)}</dd></div>
               )}
               <div className="flex justify-between"><dt className="text-ink-500">Round off</dt><dd className="tabular-nums">{inr(totals.roundOff)}</dd></div>
+              {hasReturns && <div className="flex justify-between font-semibold text-rose-600"><dt>Returned items</dt><dd className="tabular-nums">{inr(returnTotal)}</dd></div>}
             </dl>
             <div className="mt-3 rounded-xl bg-ink-900 p-4 text-white dark:bg-black/40">
-              <div className="text-xs uppercase tracking-widest text-ink-400">Grand Total</div>
-              <div className="text-4xl font-extrabold tabular-nums">{inr(totals.grandTotal)}</div>
+              <div className="text-xs uppercase tracking-widest text-ink-400">{totals.grandTotal < 0 ? 'Refund to customer' : 'Grand Total'}</div>
+              <div className={clsx('text-4xl font-extrabold tabular-nums', totals.grandTotal < 0 && 'text-rose-300')}>{inr(Math.abs(totals.grandTotal))}</div>
               {settings?.tax?.taxInclusive && <div className="text-[11px] text-ink-400">Prices inclusive of GST</div>}
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2">
@@ -692,7 +752,7 @@ export default function POS() {
               <button type="button" className="btn-secondary col-span-2" onClick={newBill}><FilePlus2 className="h-4 w-4" /> New bill <Kbd>F1</Kbd></button>
             </div>
             <div className="flex-1" />
-            <button type="button" className="btn-primary btn-lg mt-3 w-full py-4 text-lg" onClick={openPay} disabled={!items.length}><CreditCard className="h-5 w-5" /> Pay {inr(totals.grandTotal)} <Kbd>F12</Kbd></button>
+            <button type="button" className="btn-primary btn-lg mt-3 w-full py-4 text-lg" onClick={openPay} disabled={!items.length}><CreditCard className="h-5 w-5" /> {totals.grandTotal < 0 ? `Refund ${inr(-totals.grandTotal)}` : `Pay ${inr(totals.grandTotal)}`} <Kbd>F12</Kbd></button>
           </div>
         </div>
       </div>
@@ -702,9 +762,10 @@ export default function POS() {
       <NewCustomerModal open={modal === 'newCustomer'} initial={newCustInit} onClose={closeModal} onCreated={(c) => { pos.setCustomer(c); closeModal(); }} />
       <RecallModal open={modal === 'recall'} onClose={closeModal} onRecall={recall} />
       <PaymentModal open={modal === 'pay'} onClose={closeModal} total={totals.grandTotal} customer={customer} settings={settings} onComplete={complete} busy={paying} />
-      <NumberModal open={modal === 'qty'} title="Change Quantity" label={sel ? `${sel.productName} ${variantLabel(sel)} (stock ${sel.stock ?? '-'})` : ''} initial={sel?.qty} onClose={closeModal}
+      <NumberModal open={modal === 'qty'} title={sel?.qty < 0 ? 'Returned Quantity' : 'Change Quantity'} label={sel ? `${sel.productName} ${variantLabel(sel)} (stock ${sel.stock ?? '-'})` : ''} initial={sel ? Math.abs(sel.qty) : ''} onClose={closeModal}
         onSubmit={(q) => {
-          const others = items.filter((x, i) => x.variantId === sel.variantId && i !== selected).reduce((a, x) => a + x.qty, 0);
+          if (sel.qty < 0) { pos.updateLine(selected, { qty: -q }); closeModal(); return null; } // return line keeps its minus sign
+          const others = items.filter((x, i) => x.variantId === sel.variantId && x.qty > 0 && i !== selected).reduce((a, x) => a + x.qty, 0);
           if (!allowNegative && sel.stock != null && q + others > sel.stock) return toast.error(`Only ${sel.stock} in stock`);
           pos.updateLine(selected, { qty: q });
           closeModal();
@@ -718,9 +779,10 @@ export default function POS() {
           return null;
         }} />
       <DiscountModal open={modal === 'disc'} line={sel} maxPct={maxPct} onClose={closeModal} onSubmit={(d) => { pos.updateLine(selected, d); closeModal(); }} />
-      <DiscountModal open={modal === 'billDisc'} title="Bill Discount" line={{ discount: billDiscount }} base={round2(totals.subtotal - totals.itemDiscount)}
+      <DiscountModal open={modal === 'billDisc'} title="Bill Discount" line={{ discount: billDiscount }} base={soldNet}
         maxPct={Math.min(maxPct, settings?.discount?.maxBillDiscountPercent ?? 100)} onClose={closeModal}
-        onSubmit={(d) => { const base = round2(totals.subtotal - totals.itemDiscount); pos.setBillDiscount(d.discountPercent ? round2((base * d.discountPercent) / 100) : d.discount); closeModal(); }} />
+        onSubmit={(d) => { pos.setBillDiscount(d.discountPercent ? round2((soldNet * d.discountPercent) / 100) : d.discount); closeModal(); }} />
+      <RefundModal open={modal === 'refund'} amount={-totals.grandTotal} customer={customer} settings={settings} busy={paying} onClose={closeModal} onComplete={(mode) => complete([], mode)} />
       <NotFoundModal code={notFound} onClose={() => { setNotFound(null); focusScan(); }}
         onCreate={() => { const c = notFound; setNotFound(null); navigate(`/products/new?barcode=${encodeURIComponent(c)}&return=/pos`); }}
         onSearch={() => { setSearchInit(''); setNotFound(null); setModal('search'); }} />

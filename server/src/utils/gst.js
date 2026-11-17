@@ -13,19 +13,22 @@ function computeTotals(items, { taxInclusive = true, interState = false, billDis
     const qty = Number(it.qty);
     const rate = Number(it.rate);
     const gross = round2(qty * rate);
-    let lineDiscount = it.discountPercent ? round2((gross * Number(it.discountPercent)) / 100) : round2(it.discount || 0);
-    if (lineDiscount > gross) lineDiscount = gross;
+    // return lines (negative qty) never carry a discount
+    let lineDiscount = qty < 0 ? 0 : it.discountPercent ? round2((gross * Number(it.discountPercent)) / 100) : round2(it.discount || 0);
+    if (lineDiscount > gross) lineDiscount = Math.max(0, gross);
     return { ...it, qty, rate, gross, lineDiscount, net: round2(gross - lineDiscount) };
   });
 
-  const totalNet = lines.reduce((a, l) => a + l.net, 0);
+  // bill discount is spread over the sold lines only (not over return lines)
+  const totalNet = lines.reduce((a, l) => a + (l.net > 0 ? l.net : 0), 0);
+  const lastSold = lines.reduce((k, l, i) => (l.net > 0 ? i : k), -1);
   let billDisc = Math.min(round2(billDiscount || 0), round2(totalNet));
   let remaining = billDisc;
 
   lines.forEach((l, i) => {
     let share = 0;
-    if (billDisc > 0 && totalNet > 0) {
-      share = i === lines.length - 1 ? remaining : round2((billDisc * l.net) / totalNet);
+    if (billDisc > 0 && totalNet > 0 && l.net > 0) {
+      share = i === lastSold ? remaining : round2((billDisc * l.net) / totalNet);
       share = Math.min(share, l.net, remaining);
       remaining = round2(remaining - share);
     }

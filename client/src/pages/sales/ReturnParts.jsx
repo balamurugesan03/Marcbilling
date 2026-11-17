@@ -49,7 +49,7 @@ export function ReturnItemsTable({ items, value, onChange }) {
       <table className="tbl">
         <thead><tr><th>Product</th><th>Size</th><th>Color</th><th className="num">Sold</th><th className="num">Returned</th><th className="num">Unit value</th><th className="num w-36">Return qty</th><th className="num">Refund value</th></tr></thead>
         <tbody>
-          {items.map((i) => {
+          {items.filter((i) => i.qty > 0).map((i) => {
             const max = i.qty - (i.returnedQty || 0);
             const unit = round2(i.amount / i.qty);
             const q = value[i._id] || 0;

@@ -42,6 +42,7 @@ async function createReturnInternal(session, req, data, { type = 'return', excha
     seen.add(String(r.saleItemId));
     const it = sm.get(String(r.saleItemId));
     if (!it) throw ApiError.badRequest('Item does not belong to this bill');
+    if (it.qty < 0) throw ApiError.badRequest(`${it.productName} was itself returned on this bill`);
     const max = it.qty - it.returnedQty;
     if (qty > max) throw ApiError.badRequest(`Return qty for ${it.productName} ${it.size || ''} exceeds sold qty (sold ${it.qty}, already returned ${it.returnedQty})`);
     const f = qty / it.qty;
@@ -115,7 +116,7 @@ async function createReturnInternal(session, req, data, { type = 'return', excha
   }
 
   sale.returnedAmount = round2(sale.returnedAmount + amount);
-  const remaining = saleItems.reduce((a, i) => a + (i.qty - i.returnedQty), 0);
+  const remaining = saleItems.filter((i) => i.qty > 0).reduce((a, i) => a + (i.qty - i.returnedQty), 0);
   sale.returnStatus = remaining === 0 ? 'full' : 'partial';
   await sale.save({ session });
   return ret;
