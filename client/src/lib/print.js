@@ -136,7 +136,7 @@ export function receiptHtml(inv, { width = '80', duplicate = false } = {}) {
     </table>
     <table class="box items" style="margin-top:3px">
       <thead><tr><th>Code Product</th><th>MRP</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
-      <tbody>${items.map((i) => `<tr><td>${esc([i.sku, i.productName, i.size].filter(Boolean).join(' '))}${i.qty < 0 ? ' <b>(RETURN)</b>' : ''}</td><td>${m(i.mrp || i.rate)}</td><td>${(Number(i.qty) || 0).toFixed(2)}</td><td>${m(i.rate)}</td><td>${m(i.amount)}</td></tr>`).join('')}</tbody>
+      <tbody>${items.map((i) => `<tr><td>${esc([i.sku, i.productName, i.size].filter(Boolean).join(' '))}${i.qty < 0 ? ` <b>(RETURN${i.returnOf?.invoiceNumber ? ` of Bill ${esc(i.returnOf.invoiceNumber)}` : ''})</b>` : ''}</td><td>${m(i.mrp || i.rate)}</td><td>${(Number(i.qty) || 0).toFixed(2)}</td><td>${m(i.rate)}</td><td>${m(i.amount)}</td></tr>`).join('')}</tbody>
     </table>
     <table class="sum">
       ${row('Sub Total', m(t.subtotal))}

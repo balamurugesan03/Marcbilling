@@ -15,7 +15,7 @@ const MONEY_MODES = ['cash', 'card', 'upi', 'bank'];
  * Validates and prices the cart server-side (never trusts client totals) and enforces
  * price-change / discount permissions.
  */
-async function priceCart(req, session, { items, billDiscount = 0, customer, branch, settings, allowReturns = false }) {
+async function priceCart(req, session, { items, billDiscount = 0, customer, branch, settings, allowReturns = false, origItems = new Map() }) {
   if (!items?.length) throw ApiError.badRequest('Add at least one item to the bill');
   const ids = [...new Set(items.map((i) => String(i.variantId)))];
   const variants = await ProductVariant.find({ _id: { $in: ids }, companyId: req.companyId }).session(session).lean();
@@ -31,6 +31,18 @@ async function priceCart(req, session, { items, billDiscount = 0, customer, bran
     const isReturn = qty < 0; // item returned at the counter inside this bill
     if (isReturn && !req.perms.has('sale.return')) throw ApiError.forbidden('You are not allowed to take returns');
     if (!isReturn && v.status !== 'active') throw ApiError.badRequest(`${v.productName} (${v.sku}) is inactive and cannot be sold`);
+    const o = it.saleItemId ? origItems.get(String(it.saleItemId)) : null;
+    if (it.saleItemId && (!o || !isReturn || String(o.variantId) !== String(v._id))) throw ApiError.badRequest(`Return line for ${v.sku} does not match the old bill`);
+    if (o) {
+      // returned from an earlier bill: refund exactly what was paid for these pieces on that bill
+      const n = -qty;
+      return {
+        variantId: v._id, productId: v.productId, productName: v.productName, sku: v.sku, barcode: v.barcode, size: v.size, color: v.color,
+        hsnCode: o.hsnCode || v.hsnCode, qty, rate: o.rate, discount: round2(((o.discount || 0) * n) / o.qty), discountPercent: 0, gstRate: o.gstRate, mrp: o.mrp ?? v.mrp, originalRate: o.originalRate ?? o.rate,
+        categoryId: v.categoryId, categoryName: v.categoryName, brandId: v.brandId, brandName: v.brandName, purchasePrice: v.purchasePrice,
+        returnOf: { saleId: o.saleId, saleItemId: o._id, invoiceNumber: o.invoiceNumber }, origCost: o.costPrice,
+      };
+    }
     const rate = it.rate != null ? round2(it.rate) : v.sellingPrice;
     if (rate < 0) throw ApiError.badRequest(`Invalid rate for ${v.sku}`);
     if (rate !== round2(v.sellingPrice) && !canChangePrice) {
@@ -123,6 +135,63 @@ function settlePayments({ payments, grandTotal, customer, settings, internalCred
 }
 
 /**
+ * Minus lines that return items of an earlier bill (old bill scanned in POS): checks that bill is
+ * completed, inside the return-policy days, and still has that many pieces left to return.
+ * Returns Map(saleItemId -> original SaleItem doc).
+ */
+async function loadReturnedFromOldBills(session, req, items, settings, saleType) {
+  const linked = (items || []).filter((i) => i.saleItemId);
+  if (!linked.length) return new Map();
+  if (saleType !== 'sale') throw ApiError.badRequest('Old-bill returns are only allowed in POS billing');
+  const ids = [...new Set(linked.map((i) => String(i.saleItemId)))];
+  const originals = await SaleItem.find({ _id: { $in: ids }, companyId: req.companyId }).session(session);
+  const map = new Map(originals.map((o) => [String(o._id), o]));
+  const sales = await Sale.find({ _id: { $in: [...new Set(originals.map((o) => String(o.saleId)))] }, companyId: req.companyId }).session(session).lean();
+  const saleMap = new Map(sales.map((s) => [String(s._id), s]));
+  const wanted = new Map();
+  linked.forEach((i) => wanted.set(String(i.saleItemId), (wanted.get(String(i.saleItemId)) || 0) - Number(i.qty)));
+  for (const [sid, n] of wanted) {
+    const o = map.get(sid);
+    const sale = o && saleMap.get(String(o.saleId));
+    if (!o || !sale) throw ApiError.badRequest('Returned item not found on the old bill');
+    if (req.allowedBranchIds && !req.allowedBranchIds.includes(String(sale.branchId)) && !req.allowedBranchIds.includes(String(req.branchId))) throw ApiError.forbidden();
+    if (sale.status !== 'completed') throw ApiError.badRequest(`Bill ${sale.invoiceNumber} is cancelled; it cannot be returned`);
+    if (o.qty <= 0) throw ApiError.badRequest(`${o.productName} was itself a return on bill ${sale.invoiceNumber}`);
+    const policy = settings.returnPolicy;
+    if (!policy?.enabled) throw ApiError.badRequest('Returns are disabled in settings');
+    const days = (Date.now() - new Date(sale.createdAt).getTime()) / 86400000;
+    if (days > policy.days && !req.perms.has('sale.cancel')) throw ApiError.badRequest(`Return period of ${policy.days} days has expired for bill ${sale.invoiceNumber}`);
+    const left = o.qty - (o.returnedQty || 0);
+    if (n <= 0 || n > left) throw ApiError.badRequest(`Bill ${sale.invoiceNumber}: only ${left} of ${o.productName} ${o.size || ''} can still be returned`);
+    o.invoiceNumber = sale.invoiceNumber;
+  }
+  return map;
+}
+
+/** Marks the returned pieces on the old bill (or reverses that when this bill is cancelled: sign = -1). */
+async function applyOldBillReturns(session, lines, sign = 1) {
+  const bySale = new Map();
+  for (const l of lines) {
+    if (!l.returnOf?.saleItemId) continue;
+    const n = -l.qty * sign;
+    await SaleItem.updateOne({ _id: l.returnOf.saleItemId }, { $inc: { returnedQty: n } }, { session });
+    const k = String(l.returnOf.saleId);
+    bySale.set(k, round2((bySale.get(k) || 0) + Math.abs(l.amount) * sign));
+  }
+  for (const [saleId, amt] of bySale) {
+    const sale = await Sale.findById(saleId).session(session);
+    if (!sale) continue;
+    const items = await SaleItem.find({ saleId }).session(session).lean();
+    const sold = items.filter((i) => i.qty > 0);
+    const left = sold.reduce((a, i) => a + (i.qty - (i.returnedQty || 0)), 0);
+    const any = sold.some((i) => (i.returnedQty || 0) > 0);
+    sale.returnedAmount = round2(Math.max(0, (sale.returnedAmount || 0) + amt));
+    sale.returnStatus = !any ? 'none' : left === 0 ? 'full' : 'partial';
+    await sale.save({ session });
+  }
+}
+
+/**
  * Counter returns made the bill total negative: the shop pays the difference back.
  * Stored as one payment line with a negative amount (cash / card / UPI / bank refund, or store credit).
  */
@@ -150,14 +219,15 @@ async function createSaleInternal(session, req, data, { saleType = 'sale', inter
   const customer = data.customerId ? await Customer.findOne({ _id: data.customerId, companyId: req.companyId }).session(session) : null;
   if (data.customerId && !customer) throw ApiError.badRequest('Customer not found');
 
-  const { lines, totals, interState } = await priceCart(req, session, { items: data.items, billDiscount: data.billDiscount, customer, branch, settings, allowReturns: saleType === 'sale' });
+  const origItems = await loadReturnedFromOldBills(session, req, data.items, settings, saleType);
+  const { lines, totals, interState } = await priceCart(req, session, { items: data.items, billDiscount: data.billDiscount, customer, branch, settings, allowReturns: saleType === 'sale', origItems });
   const pay = totals.grandTotal < 0
     ? settleRefund({ refundMode: data.refundMode, grandTotal: totals.grandTotal, customer, settings })
     : settlePayments({ payments: data.payments, grandTotal: totals.grandTotal, customer, settings, internalCredit });
 
   const invoiceNumber = await settingsService.nextNumber(req.companyId, 'invoice', { branchId, session });
   const stockMap = await stockService.getStockMap(branchId, lines.map((l) => l.variantId), session);
-  const costOf = (l) => stockMap.get(String(l.variantId))?.avgCost || l.purchasePrice || 0;
+  const costOf = (l) => (l.returnOf ? l.origCost : undefined) ?? stockMap.get(String(l.variantId))?.avgCost ?? l.purchasePrice ?? 0;
   const costTotal = round2(lines.reduce((a, l) => a + costOf(l) * l.qty, 0));
   const cashSessionId = await paymentService.openSessionId(req, branchId, session);
 
@@ -175,9 +245,10 @@ async function createSaleInternal(session, req, data, { saleType = 'sale', inter
     variantId: l.variantId, productId: l.productId, productName: l.productName, sku: l.sku, barcode: l.barcode, size: l.size, color: l.color,
     hsnCode: l.hsnCode, qty: l.qty, rate: l.rate, discount: l.discountTotal, gstRate: l.gstRate, taxable: l.taxable,
     cgst: l.cgst, sgst: l.sgst, igst: l.igst, taxAmount: l.taxAmount, amount: l.amount, mrp: l.mrp, originalRate: l.originalRate,
-    categoryId: l.categoryId, categoryName: l.categoryName, brandId: l.brandId, brandName: l.brandName, costPrice: costOf(l),
+    categoryId: l.categoryId, categoryName: l.categoryName, brandId: l.brandId, brandName: l.brandName, costPrice: costOf(l), returnOf: l.returnOf,
   }));
   await SaleItem.insertMany(itemDocs, { session });
+  await applyOldBillReturns(session, lines);
 
   for (const l of lines) {
     await stockService.applyMovement({
@@ -362,6 +433,7 @@ async function cancel(req, id, reason) {
       });
     }
     await SaleItem.updateMany({ saleId: id }, { $set: { status: 'cancelled' } }, { session });
+    await applyOldBillReturns(session, items, -1); // old-bill items returned on this bill become returnable again
     for (const p of sale.payments) {
       if (MONEY_MODES.includes(p.mode)) {
         // a refund line (negative, from counter returns) is reversed as money coming back in

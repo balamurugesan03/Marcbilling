@@ -17,12 +17,13 @@ import { printReceipt } from '../../lib/print';
 import { beep } from '../../lib/beep';
 import { Modal, Kbd, Spinner, Empty } from '../../components/ui';
 import { VariantSearchModal } from '../../components/common';
+import { InvoiceFinder, BillSummary, ReturnItemsTable, returnValue } from './ReturnParts';
 
 const SHORTCUTS = [
-  ['F1', 'Sales / new bill (any page)'], ['F2', 'Sales return (any page)'], ['F3', 'Direct print last bill'], ['F4', 'Purchase entry (any page)'],
+  ['F1', 'Sales / new bill (any page)'], ['F3', 'Direct print last bill'], ['F4', 'Purchase entry (any page)'],
   ['F5', 'New product (any page)'], ['F6', 'Reports (any page)'], ['F7', 'Sales summary (any page)'], ['F8', 'Purchase summary (any page)'],
   ['F9', 'Cash payment (any page)'], ['F10', 'Cash receipt (any page)'], ['F11', 'Product search'], ['F12 / Enter', 'Payment'],
-  ['R', 'Customer does not want it: return 1 (minus line)'], ['Ctrl+R', 'Item from an earlier bill: return'], ['Alt+C', 'Customer search'], ['Alt+N', 'New customer'], ['Alt+H', 'Hold bill'], ['Alt+R', 'Recall bill'], ['Del', 'Remove selected item'],
+  ['F2', 'Sales return from an old bill (popup)'], ['R', 'Customer does not want it: return 1 (minus line)'], ['Ctrl+R', 'Item from an earlier bill: return'], ['Alt+C', 'Customer search'], ['Alt+N', 'New customer'], ['Alt+H', 'Hold bill'], ['Alt+R', 'Recall bill'], ['Del', 'Remove selected item'],
   ['Q', 'Change quantity'], ['D', 'Item discount'], ['B', 'Bill discount'], ['E', 'Change rate'], ['↑ / ↓', 'Select item'], ['+ / −', 'Qty of selected (empty scan box)'],
   ['3*CODE', 'Scan with quantity'], ['Esc', 'Close popup'],
 ];
@@ -339,6 +340,49 @@ function PaymentModal({ open, onClose, total, customer, settings, onComplete, bu
   );
 }
 
+/**
+ * Customer brings back items of an earlier bill: scan the barcode on that bill (or type the invoice number),
+ * tick what comes back, and those pieces join the current bill as minus lines at the price paid on that bill.
+ */
+function OldBillReturnModal({ open, onClose, cartItems, settings, canOverride, onAdd }) {
+  const [inv, setInv] = useState(null);
+  const [sel, setSel] = useState({});
+  useEffect(() => { if (open) { setInv(null); setSel({}); } }, [open]);
+  const inCart = (id) => -cartItems.filter((l) => l.returnRef?.saleItemId === id).reduce((a, l) => a + l.qty, 0);
+  // pieces already put into this bill count as returned, so they cannot be added twice
+  const shown = inv ? inv.items.map((i) => ({ ...i, returnedQty: (i.returnedQty || 0) + inCart(i._id) })) : [];
+  const value = inv ? returnValue(shown, sel) : 0;
+  const policy = settings?.returnPolicy;
+  const days = inv ? Math.floor((Date.now() - new Date(inv.sale.createdAt).getTime()) / 86400000) : 0;
+  const blocked = !inv ? null
+    : inv.sale.status !== 'completed' ? 'This bill is cancelled'
+      : !policy?.enabled ? 'Returns are disabled in settings'
+        : days > policy.days && !canOverride ? `Return period of ${policy.days} days is over (bill is ${days} days old)` : null;
+  const add = () => {
+    const picked = Object.entries(sel).filter(([, q]) => q > 0);
+    if (!picked.length) return toast.error('Enter the quantity being returned');
+    onAdd(inv, picked.map(([id, n]) => ({ it: inv.items.find((i) => i._id === id), n })));
+    return null;
+  };
+  return (
+    <Modal open={open} onClose={onClose} title="Return from an old bill" size="xl"
+      footer={inv && <><button type="button" className="btn-secondary" onClick={onClose}>Cancel <Kbd>Esc</Kbd></button>
+        <button type="button" className="btn-primary" disabled={Boolean(blocked) || !value} onClick={add}><Undo2 className="h-4 w-4" /> Add −{inr(value)} to this bill</button></>}>
+      <div className="space-y-4">
+        <InvoiceFinder key={String(open)} onLoad={(d) => { setInv(d); setSel({}); }} />
+        {inv && (
+          <>
+            <BillSummary inv={inv} />
+            {blocked ? <div className="rounded-lg bg-rose-50 p-3 text-sm font-semibold text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">{blocked}</div>
+              : <ReturnItemsTable items={shown} value={sel} onChange={setSel} />}
+            <p className="text-xs text-ink-500">Returned items come into the current bill as minus lines at the price paid on bill {inv.sale.invoiceNumber}; their stock goes back in when this bill is saved. Then scan whatever the customer buys instead.</p>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 /** Counter returns are worth more than the new items: choose how the difference goes back to the customer. */
 function RefundModal({ open, amount, customer, settings, busy, onClose, onComplete }) {
   const enabled = settings?.payment?.enabledModes || ['cash', 'card', 'upi'];
@@ -487,8 +531,22 @@ export default function POS() {
   };
 
   // F1 (from any page) starts a new bill; newBill still asks before clearing a non-empty cart
-  const fresh = useLocation().state?.fresh;
+  const { fresh, openReturn } = useLocation().state || {};
   useEffect(() => { if (fresh) newBill(); }, [fresh]);
+  // F2 (from any page): open the "return from an old bill" popup on top of the current bill
+  useEffect(() => { if (openReturn) openOldReturn(); }, [openReturn]);
+  const openOldReturn = () => {
+    if (!can('sale.return')) { toast.error('You are not allowed to take returns'); return; }
+    setModal('oldReturn');
+  };
+  const addOldReturns = async (inv, picked) => {
+    picked.forEach(({ it, n }) => pos.addOldBillReturn(it, n, { saleId: inv.sale._id, invoiceNumber: inv.sale.invoiceNumber, maxQty: it.qty - (it.returnedQty || 0) }));
+    // the returning customer becomes the customer of this bill (if none chosen yet)
+    if (!customer && inv.sale.customerId) get(`/customers/${inv.sale.customerId}`).then((p) => pos.setCustomer(p.customer)).catch(() => {});
+    beep('ok');
+    toast.success(`Returned from ${inv.sale.invoiceNumber}: now scan what the customer buys`);
+    closeModal();
+  };
 
   const hold = async () => {
     if (!items.length) return toast.error('Nothing to hold');
@@ -536,7 +594,7 @@ export default function POS() {
     try {
       const inv = await post('/sales', {
         customerId: customer?._id, billDiscount, payments, refundMode, heldBillId: pos.heldBillId || undefined,
-        items: items.map((i) => ({ variantId: i.variantId, qty: i.qty, rate: i.rate, discount: i.discount || undefined, discountPercent: i.discountPercent || undefined })),
+        items: items.map((i) => ({ variantId: i.variantId, qty: i.qty, rate: i.rate, discount: i.discount || undefined, discountPercent: i.discountPercent || undefined, saleItemId: i.returnRef?.saleItemId })),
       });
       pos.clear();
       pos.setLastSale(inv.sale._id);
@@ -603,7 +661,7 @@ export default function POS() {
   const editQty = needLine(() => setModal('qty'));
   const editDisc = needLine(() => (sel.qty < 0 ? toast.error('No discount on a return item') : can('sale.discount') ? setModal('disc') : toast.error('You are not allowed to give discounts')));
   const editBillDisc = () => (can('sale.discount') ? (items.length ? setModal('billDisc') : toast.error('Add items first')) : toast.error('You are not allowed to give discounts'));
-  const editRate = needLine(() => (can('sale.price_change') ? setModal('rate') : toast.error('You are not allowed to change the selling price')));
+  const editRate = needLine(() => (sel.returnRef ? toast.error('Price comes from the old bill') : can('sale.price_change') ? setModal('rate') : toast.error('You are not allowed to change the selling price')));
   // single-key shortcuts (no Ctrl needed); in the scan box they only fire while it is empty
   const letterKeys = { q: editQty, d: editDisc, b: editBillDisc, e: editRate, r: () => returnItem() };
   useHotkeys({
@@ -640,6 +698,7 @@ export default function POS() {
         {stats && <span className="text-ink-500">Today: <b className="text-ink-700 dark:text-ink-200">{stats.bills} bills · {inr(stats.amount)}</b></span>}
         {stats && (stats.cashSession ? <span className="badge-green">Cash session {stats.cashSession.sessionNo}</span> : can('cash.manage') && <button type="button" className="badge-amber" onClick={() => navigate('/accounts/cash')}>No cash session — open</button>)}
         {pos.heldBillId && <span className="badge-blue">Recalled bill</span>}
+        {can('sale.return') && <button type="button" className="btn-secondary btn-sm border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-500/40 dark:hover:bg-rose-500/10" onClick={openOldReturn}><Undo2 className="h-4 w-4" /> Sales Return (old bill) <Kbd>F2</Kbd></button>}
         <div className="flex-1" />
         <button type="button" className="flex items-center gap-1 text-ink-500 hover:text-brand-600" onClick={() => setModal('help')}><Keyboard className="h-4 w-4" /> Shortcuts <Kbd>?</Kbd></button>
       </div>
@@ -682,7 +741,7 @@ export default function POS() {
                       <tr key={l.key} data-row={i} onClick={() => { pos.select(i); focusScan(); }} className={clsx('cursor-pointer', l.qty < 0 && 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300', i === selected && '!bg-brand-50 ring-1 ring-inset ring-brand-300 dark:!bg-brand-500/10 dark:ring-brand-500/40')}>
                         <td className="text-ink-400">{i + 1}</td>
                         <td className="font-mono text-xs">{l.barcode}</td>
-                        <td className="max-w-[260px] truncate font-medium">{l.qty < 0 && <span className="badge-red mr-1.5">RETURN</span>}{l.productName}<div className="font-mono text-[10px] text-ink-400">{l.sku}</div></td>
+                        <td className="max-w-[260px] truncate font-medium">{l.qty < 0 && <span className="badge-red mr-1.5">{l.returnRef ? `RETURN · ${l.returnRef.invoiceNumber}` : 'RETURN'}</span>}{l.productName}<div className="font-mono text-[10px] text-ink-400">{l.sku}</div></td>
                         <td>{l.size || '-'}</td>
                         <td>{l.color || '-'}</td>
                         <td className="num">
@@ -799,6 +858,7 @@ export default function POS() {
       <DiscountModal open={modal === 'billDisc'} title="Bill Discount" line={{ discount: billDiscount }} base={soldNet}
         maxPct={Math.min(maxPct, settings?.discount?.maxBillDiscountPercent ?? 100)} onClose={closeModal}
         onSubmit={(d) => { pos.setBillDiscount(d.discountPercent ? round2((soldNet * d.discountPercent) / 100) : d.discount); closeModal(); }} />
+      <OldBillReturnModal open={modal === 'oldReturn'} onClose={closeModal} cartItems={items} settings={settings} canOverride={can('sale.cancel')} onAdd={addOldReturns} />
       <RefundModal open={modal === 'refund'} amount={-totals.grandTotal} customer={customer} settings={settings} busy={paying} onClose={closeModal} onComplete={(mode) => complete([], mode)} />
       <NotFoundModal code={notFound} onClose={() => { setNotFound(null); focusScan(); }}
         onCreate={() => { const c = notFound; setNotFound(null); navigate(`/products/new?barcode=${encodeURIComponent(c)}&return=/pos`); }}

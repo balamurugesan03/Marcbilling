@@ -12,6 +12,8 @@ const saleItemSchema = new Schema({
   ...lineFields,
   // negative qty = item returned at the counter inside this bill (stock comes back, amount is minus)
   qty: { type: Number, required: true, validate: { validator: (v) => Number.isInteger(v) && v !== 0, message: 'Quantity cannot be zero' } },
+  // set on a minus line that returns an item of an earlier bill (scanned in POS)
+  returnOf: { saleId: { type: Schema.Types.ObjectId, ref: 'Sale' }, saleItemId: { type: Schema.Types.ObjectId, ref: 'SaleItem' }, invoiceNumber: String, _id: false },
   mrp: Number,
   originalRate: Number, // variant selling price at the time of sale
   categoryId: { type: Schema.Types.ObjectId, ref: 'Category' },

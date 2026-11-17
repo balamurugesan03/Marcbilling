@@ -89,7 +89,8 @@ const purchase = {
 const saleItem = z.object({ variantId: id, qty, rate: money.optional(), discount: money.optional(), discountPercent: z.coerce.number().min(0).max(100).optional() });
 // POS bill lines: negative qty = item returned at the counter inside the bill
 const saleQty = z.coerce.number().int('Quantity must be a whole number').min(-100000).max(100000).refine((n) => n !== 0, 'Quantity cannot be zero');
-const billItem = saleItem.extend({ qty: saleQty });
+// saleItemId: this minus line returns that line of an earlier bill (price comes from that bill)
+const billItem = saleItem.extend({ qty: saleQty, saleItemId: optId });
 const sale = {
   create: z.object({
     customerId: optId, items: z.array(billItem).min(1, 'Add at least one item').max(500), billDiscount: money.optional(), payments, notes: optStr(500), heldBillId: optId,

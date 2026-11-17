@@ -215,7 +215,13 @@ export default function Layout() {
   };
   useHotkeys({
     F1: goTo('/pos', 'sale.create', { restart: true }),
-    F2: goTo('/sales/return', 'sale.return', { restart: true }),
+    // F2: sales return popup on the billing page (returned items join the current bill as minus lines)
+    F2: () => {
+      if (document.querySelector('[role="dialog"]')) return false;
+      if (!can('sale.create') || !can('sale.return')) { toast.error('You do not have access to sales return'); return undefined; }
+      navigate('/pos', { state: { openReturn: Date.now() } });
+      return undefined;
+    },
     F4: goTo('/purchase/new', 'purchase.manage'),
     F5: goTo('/products/new', 'product.create'),
     F6: report(['/reports/Sales', 'reports.view'], ['/reports/Financial?r=sales_statement', 'reports.financial']),

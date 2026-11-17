@@ -10,6 +10,10 @@ const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 function syncReturns(items) {
   const byKey = new Map(items.map((l) => [l.key, l]));
   return items.flatMap((l) => {
+    if (l.returnRef) { // item from an earlier bill: at most what is still returnable, discount per piece of that bill
+      const n = Math.max(1, Math.min(-l.qty, l.returnRef.maxQty));
+      return [{ ...l, qty: -n, discountPercent: 0, discount: r2(l.returnRef.unitDiscount * n) }];
+    }
     if (!l.returnOf) return [l];
     const p = byKey.get(l.returnOf);
     if (!p || p.qty <= 0) return []; // billed line gone
@@ -70,10 +74,27 @@ export const usePOS = create(persist((set, get) => ({
     set({ items: syncReturns(items), selected: ri >= 0 ? ri : index + 1 });
     return { line: ret };
   },
+  /**
+   * Items of an earlier bill (invoice scanned in the return popup) come in as minus lines priced
+   * from that bill. it = the old bill's sale item, n = pieces, maxQty = still returnable.
+   */
+  addOldBillReturn(it, n, { saleId, invoiceNumber, maxQty }) {
+    const items = [...get().items];
+    const i = items.findIndex((l) => l.returnRef?.saleItemId === it._id);
+    const returnRef = { saleId, saleItemId: it._id, invoiceNumber, maxQty, unitDiscount: r2((it.discount || 0) / it.qty) };
+    if (i >= 0) items[i] = { ...items[i], qty: items[i].qty - n, returnRef };
+    else {
+      items.push({
+        key: `ret-${it._id}`, variantId: it.variantId, productName: it.productName, sku: it.sku, barcode: it.barcode, size: it.size, color: it.color,
+        qty: -n, rate: it.rate, originalRate: it.rate, mrp: it.mrp, gstRate: it.gstRate, discount: 0, discountPercent: 0, returnRef,
+      });
+    }
+    set({ items: syncReturns(items), selected: i >= 0 ? i : items.length - 1 });
+  },
   /** Item brought back from an earlier purchase: the scanned line itself flips to a minus quantity. */
   toggleReturn(index) {
     const line = get().items[index];
-    if (!line || line.returnOf || get().items.some((i) => i.returnOf === line.key)) return null;
+    if (!line || line.returnOf || line.returnRef || get().items.some((i) => i.returnOf === line.key)) return null;
     const items = get().items.map((l, i) => (i === index ? { ...l, qty: -l.qty, discount: 0, discountPercent: 0 } : l));
     set({ items });
     return items[index];
