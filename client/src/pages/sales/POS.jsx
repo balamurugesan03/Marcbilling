@@ -4,7 +4,7 @@ import clsx from 'clsx';
 import toast from 'react-hot-toast';
 import {
   ScanBarcode, Search, User, UserPlus, X, Minus, Plus, Trash2, PauseCircle, History, CreditCard, Printer, FilePlus2,
-  Keyboard, Wallet, Gift, BadgePercent, CheckCircle2, PackageX, Clock3, Receipt,
+  Keyboard, Wallet, Gift, BadgePercent, CheckCircle2, PackageX, Clock3, Receipt, Undo2,
 } from 'lucide-react';
 import { get, post, del, errMsg } from '../../lib/api';
 import { useAuth } from '../../store/auth';
@@ -22,7 +22,7 @@ const SHORTCUTS = [
   ['F1', 'Sales / new bill (any page)'], ['F2', 'Sales return (any page)'], ['F3', 'Direct print last bill'], ['F4', 'Purchase entry (any page)'],
   ['F5', 'New product (any page)'], ['F6', 'Reports (any page)'], ['F7', 'Sales summary (any page)'], ['F8', 'Purchase summary (any page)'],
   ['F9', 'Cash payment (any page)'], ['F10', 'Cash receipt (any page)'], ['F11', 'Product search'], ['F12 / Enter', 'Payment'],
-  ['R', 'Return selected item (minus)'], ['Alt+C', 'Customer search'], ['Alt+N', 'New customer'], ['Alt+H', 'Hold bill'], ['Alt+R', 'Recall bill'], ['Del', 'Remove selected item'],
+  ['R', 'Customer does not want it: return 1 (minus line)'], ['Ctrl+R', 'Item from an earlier bill: return'], ['Alt+C', 'Customer search'], ['Alt+N', 'New customer'], ['Alt+H', 'Hold bill'], ['Alt+R', 'Recall bill'], ['Del', 'Remove selected item'],
   ['Q', 'Change quantity'], ['D', 'Item discount'], ['B', 'Bill discount'], ['E', 'Change rate'], ['↑ / ↓', 'Select item'], ['+ / −', 'Qty of selected (empty scan box)'],
   ['3*CODE', 'Scan with quantity'], ['Esc', 'Close popup'],
 ];
@@ -518,7 +518,7 @@ export default function POS() {
 
   const hasReturns = items.some((i) => i.qty < 0);
   const returnTotal = round2(lines.filter((l) => l.qty < 0).reduce((a, l) => a + l.amount, 0));
-  const soldNet = round2(lines.filter((l) => l.qty > 0).reduce((a, l) => a + l.gross - l.lineDiscount, 0)); // bill discount base
+  const soldNet = Math.max(0, round2(lines.reduce((a, l) => a + l.gross - l.lineDiscount, 0))); // bill discount base: net of returns
   const openPay = () => {
     if (!items.length) return toast.error('Add items to the bill first');
     if (totals.grandTotal < 0) { setModal('refund'); return null; } // returns are worth more than the new items
@@ -578,12 +578,25 @@ export default function POS() {
     if (!ret && delta > 0 && !allowNegative && line.stock != null && inCart + delta > line.stock) { beep('err'); toast.error(`Only ${line.stock} in stock`); return; }
     pos.updateLine(i, { qty: q });
   };
-  // R: the selected item is being returned by the customer -> minus line (press again to undo)
-  const toggleReturn = () => {
-    if (!sel) { toast.error('Scan the returned item first, then press R'); return; }
+  // R / row Return button: customer doesn't want one piece of a billed item -> a minus line appears under it
+  // (R on a minus line undoes one piece)
+  const returnItem = (index = selected) => {
+    const line = items[index];
+    if (!line) { toast.error('Select the item the customer does not want, then press R'); return; }
+    if (line.qty > 0 && !can('sale.return')) { toast.error('You are not allowed to take returns'); return; }
+    const r = pos.returnOne(index);
+    if (r.error) { beep('err'); toast.error(r.error); return; }
+    if (r.undone) { toast('Return undone'); return; }
+    beep('ok');
+    toast.success(`${line.productName}: −${-r.line.qty} returned`);
+  };
+  // Ctrl+R: the scanned item was bought earlier and brought back -> the line itself turns minus
+  const flipReturn = () => {
+    if (!sel) { toast.error('Scan the returned item first, then press Ctrl+R'); return; }
     if (sel.qty > 0 && !can('sale.return')) { toast.error('You are not allowed to take returns'); return; }
     const line = pos.toggleReturn(selected);
-    if (line.qty < 0) { beep('ok'); toast.success(`${line.productName}: marked as RETURN (−${-line.qty})`); } else toast('Return removed — sold item again');
+    if (!line) { toast.error('Use R on this item (it has a return line)'); return; }
+    if (line.qty < 0) { beep('ok'); toast.success(`${line.productName}: brought back — RETURN (−${-line.qty})`); } else toast('Return removed — sold item again');
   };
 
   const anyModal = Boolean(modal || notFound || success);
@@ -592,7 +605,7 @@ export default function POS() {
   const editBillDisc = () => (can('sale.discount') ? (items.length ? setModal('billDisc') : toast.error('Add items first')) : toast.error('You are not allowed to give discounts'));
   const editRate = needLine(() => (can('sale.price_change') ? setModal('rate') : toast.error('You are not allowed to change the selling price')));
   // single-key shortcuts (no Ctrl needed); in the scan box they only fire while it is empty
-  const letterKeys = { q: editQty, d: editDisc, b: editBillDisc, e: editRate, r: toggleReturn };
+  const letterKeys = { q: editQty, d: editDisc, b: editBillDisc, e: editRate, r: () => returnItem() };
   useHotkeys({
     // F1 / F2 / F4–F10 are app-wide (see Layout)
     F3: () => printLast(),
@@ -607,6 +620,7 @@ export default function POS() {
     'ctrl+d': editDisc,
     'ctrl+b': editBillDisc,
     'ctrl+e': editRate,
+    'ctrl+r': flipReturn,
     Delete: needLine(() => pos.removeLine(selected)),
     ArrowDown: () => pos.select(selected + 1),
     ArrowUp: () => pos.select(selected - 1),
@@ -662,7 +676,7 @@ export default function POS() {
                 </div>
               ) : (
                 <table className="tbl">
-                  <thead><tr><th className="w-10">#</th><th>Barcode</th><th>Product</th><th>Size</th><th>Color</th><th className="num w-32">Qty</th><th className="num">Rate</th><th className="num">Disc</th><th className="num">GST</th><th className="num">Amount</th><th className="w-8" /></tr></thead>
+                  <thead><tr><th className="w-10">#</th><th>Barcode</th><th>Product</th><th>Size</th><th>Color</th><th className="num w-32">Qty</th><th className="num">Rate</th><th className="num">Disc</th><th className="num">GST</th><th className="num">Amount</th><th className="w-28" /></tr></thead>
                   <tbody>
                     {lines.map((l, i) => (
                       <tr key={l.key} data-row={i} onClick={() => { pos.select(i); focusScan(); }} className={clsx('cursor-pointer', l.qty < 0 && 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300', i === selected && '!bg-brand-50 ring-1 ring-inset ring-brand-300 dark:!bg-brand-500/10 dark:ring-brand-500/40')}>
@@ -682,7 +696,10 @@ export default function POS() {
                         <td className="num text-rose-600">{l.discountTotal ? `-${inr(l.discountTotal)}` : '-'}</td>
                         <td className="num text-xs text-ink-500">{l.gstRate}%</td>
                         <td className={clsx('num font-semibold', l.qty < 0 && 'text-rose-600')}>{inr(l.amount)}</td>
-                        <td><button type="button" tabIndex={-1} className="text-ink-400 hover:text-rose-600" onClick={(e) => { e.stopPropagation(); pos.removeLine(i); focusScan(); }}><Trash2 className="h-4 w-4" /></button></td>
+                        <td className="whitespace-nowrap">
+                          {l.qty > 0 && can('sale.return') && <button type="button" tabIndex={-1} title="Customer doesn't want it: return 1 (R)" className="mr-2 inline-flex items-center gap-0.5 rounded border border-rose-200 px-1.5 py-0.5 text-[11px] font-semibold text-rose-600 hover:bg-rose-50 dark:border-rose-500/40 dark:hover:bg-rose-500/10" onClick={(e) => { e.stopPropagation(); pos.select(i); returnItem(i); focusScan(); }}><Undo2 className="h-3.5 w-3.5" /> Return</button>}
+                          <button type="button" tabIndex={-1} className="text-ink-400 hover:text-rose-600" onClick={(e) => { e.stopPropagation(); pos.removeLine(i); focusScan(); }}><Trash2 className="h-4 w-4" /></button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

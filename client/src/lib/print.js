@@ -98,7 +98,7 @@ export function receiptHtml(inv, { width = '80', duplicate = false } = {}) {
     .c { text-align: center; } .r { text-align: right; } .b { font-weight: 900; }
     table { width: 100%; border-collapse: collapse; } td, th { padding: 1px 2px; vertical-align: top; }
     .head { display: flex; align-items: center; gap: 2mm; }
-    .head img { width: ${w === 58 ? 11 : 14}mm; height: auto; filter: grayscale(1) contrast(1.6); }
+    .head img { width: ${w === 58 ? 15 : 19}mm; height: ${w === 58 ? 15 : 19}mm; object-fit: contain; flex-shrink: 0; filter: grayscale(1) contrast(1.4); }
     .head .info { flex: 1; text-align: center; line-height: 1.25; }
     .store { font-size: ${font + 7}px; font-weight: 900; letter-spacing: 1px; }
     .tag { font-size: ${font - 1}px; font-style: italic; }
@@ -118,7 +118,7 @@ export function receiptHtml(inv, { width = '80', duplicate = false } = {}) {
     .thanks { margin-top: 4px; text-align: center; font-size: ${font + 1}px; font-weight: 900; }
   </style></head><body>
     <div class="head">
-      <img src="${esc(absUrl('/logo-print.png'))}" alt="" onerror="this.style.display='none'">
+      <img src="${esc(absUrl(PRINT_LOGO))}" alt="" onerror="this.style.display='none'">
       <div class="info">
         <div class="store">${esc(company?.name || 'MARC')}</div>
         <div class="tag">${esc(STORE_TAGLINE)}</div>

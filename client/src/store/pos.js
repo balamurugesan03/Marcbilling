@@ -1,6 +1,23 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+
+/**
+ * Keeps each minus line in step with the billed line it returns: same rate, the same discount
+ * share per piece, and never more pieces than were billed.
+ */
+function syncReturns(items) {
+  const byKey = new Map(items.map((l) => [l.key, l]));
+  return items.flatMap((l) => {
+    if (!l.returnOf) return [l];
+    const p = byKey.get(l.returnOf);
+    if (!p || p.qty <= 0) return []; // billed line gone
+    const n = Math.min(-l.qty, p.qty);
+    return [{ ...l, qty: -n, rate: p.rate, discountPercent: p.discountPercent || 0, discount: p.discountPercent ? 0 : r2(((p.discount || 0) * n) / p.qty) }];
+  });
+}
+
 /** POS cart, persisted so a page reload / "create product" detour never loses the bill. */
 export const usePOS = create(persist((set, get) => ({
   items: [],
@@ -29,17 +46,43 @@ export const usePOS = create(persist((set, get) => ({
   },
   updateLine(index, patch) {
     const items = get().items.map((l, i) => (i === index ? { ...l, ...patch } : l));
-    set({ items });
+    set({ items: syncReturns(items) });
   },
-  /** Item returned at the counter: the line flips to a minus quantity (no discount on returns). */
+  /**
+   * Customer does not want one piece of a billed line: add (or grow) a minus line right below it,
+   * at the same rate and discount, so the total drops by exactly what that piece cost.
+   * On a minus line it undoes one piece. Returns { line } or { error }.
+   */
+  returnOne(index) {
+    const items = [...get().items];
+    const line = items[index];
+    if (!line) return { error: 'Select an item first' };
+    if (line.qty < 0) {
+      if (line.qty === -1) items.splice(index, 1); else items[index] = { ...line, qty: line.qty + 1 };
+      set({ items: syncReturns(items), selected: Math.max(0, Math.min(index, items.length - 1)) });
+      return { undone: true, line };
+    }
+    const ri = items.findIndex((i) => i.returnOf === line.key);
+    const returned = ri >= 0 ? -items[ri].qty : 0;
+    if (returned >= line.qty) return { error: `All ${line.qty} of ${line.productName} already returned` };
+    const ret = { ...line, key: `${line.key}-ret`, returnOf: line.key, qty: -(returned + 1) };
+    if (ri >= 0) items[ri] = ret; else items.splice(index + 1, 0, ret);
+    set({ items: syncReturns(items), selected: ri >= 0 ? ri : index + 1 });
+    return { line: ret };
+  },
+  /** Item brought back from an earlier purchase: the scanned line itself flips to a minus quantity. */
   toggleReturn(index) {
+    const line = get().items[index];
+    if (!line || line.returnOf || get().items.some((i) => i.returnOf === line.key)) return null;
     const items = get().items.map((l, i) => (i === index ? { ...l, qty: -l.qty, discount: 0, discountPercent: 0 } : l));
     set({ items });
     return items[index];
   },
   removeLine(index) {
-    const items = get().items.filter((_, i) => i !== index);
-    set({ items, selected: Math.max(0, Math.min(index, items.length - 1)) });
+    const gone = get().items[index];
+    // removing a billed line also removes its minus (return) line
+    const items = get().items.filter((l, i) => i !== index && !(gone && l.returnOf === gone.key));
+    set({ items: syncReturns(items), selected: Math.max(0, Math.min(index, items.length - 1)) });
   },
   select: (i) => set({ selected: Math.max(0, Math.min(i, get().items.length - 1)) }),
   setCustomer: (customer) => set({ customer }),

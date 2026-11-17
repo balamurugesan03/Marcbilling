@@ -13,16 +13,18 @@ function computeTotals(items, { taxInclusive = true, interState = false, billDis
     const qty = Number(it.qty);
     const rate = Number(it.rate);
     const gross = round2(qty * rate);
-    // return lines (negative qty) never carry a discount
-    let lineDiscount = qty < 0 ? 0 : it.discountPercent ? round2((gross * Number(it.discountPercent)) / 100) : round2(it.discount || 0);
-    if (lineDiscount > gross) lineDiscount = Math.max(0, gross);
+    // a return line (negative qty) gives back the same discount its piece had: the discount is minus too
+    const sign = qty < 0 ? -1 : 1;
+    let lineDiscount = it.discountPercent ? round2((gross * Number(it.discountPercent)) / 100) : round2(sign * (it.discount || 0));
+    if (Math.abs(lineDiscount) > Math.abs(gross)) lineDiscount = gross;
     return { ...it, qty, rate, gross, lineDiscount, net: round2(gross - lineDiscount) };
   });
 
-  // bill discount is spread over the sold lines only (not over return lines)
+  // bill discount is spread over the sold lines, but never more than the net bill (sold − returned)
   const totalNet = lines.reduce((a, l) => a + (l.net > 0 ? l.net : 0), 0);
+  const netBill = Math.max(0, lines.reduce((a, l) => a + l.net, 0));
   const lastSold = lines.reduce((k, l, i) => (l.net > 0 ? i : k), -1);
-  let billDisc = Math.min(round2(billDiscount || 0), round2(totalNet));
+  let billDisc = Math.min(round2(billDiscount || 0), round2(netBill));
   let remaining = billDisc;
 
   lines.forEach((l, i) => {

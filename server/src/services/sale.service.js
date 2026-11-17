@@ -31,7 +31,6 @@ async function priceCart(req, session, { items, billDiscount = 0, customer, bran
     const isReturn = qty < 0; // item returned at the counter inside this bill
     if (isReturn && !req.perms.has('sale.return')) throw ApiError.forbidden('You are not allowed to take returns');
     if (!isReturn && v.status !== 'active') throw ApiError.badRequest(`${v.productName} (${v.sku}) is inactive and cannot be sold`);
-    if (isReturn && (Number(it.discount) > 0 || Number(it.discountPercent) > 0)) throw ApiError.badRequest(`Return item ${v.sku} cannot have a discount`);
     const rate = it.rate != null ? round2(it.rate) : v.sellingPrice;
     if (rate < 0) throw ApiError.badRequest(`Invalid rate for ${v.sku}`);
     if (rate !== round2(v.sellingPrice) && !canChangePrice) {
@@ -40,8 +39,9 @@ async function priceCart(req, session, { items, billDiscount = 0, customer, bran
     if (v.mrp && rate > v.mrp) throw ApiError.badRequest(`Rate for ${v.sku} cannot exceed MRP ₹${v.mrp}`);
     const discount = round2(it.discount || 0);
     const discountPercent = Number(it.discountPercent || 0);
-    if ((discount > 0 || discountPercent > 0) && !canDiscount) throw ApiError.forbidden('Unauthorized discount: you are not allowed to give discounts');
-    if ((discount > 0 || discountPercent > 0) && !settings.discount.allowLineDiscount) throw ApiError.badRequest('Line discounts are disabled in settings');
+    // a return line repeats the discount its piece was billed with: that only lowers the refund, so no permission is needed
+    if (!isReturn && (discount > 0 || discountPercent > 0) && !canDiscount) throw ApiError.forbidden('Unauthorized discount: you are not allowed to give discounts');
+    if (!isReturn && (discount > 0 || discountPercent > 0) && !settings.discount.allowLineDiscount) throw ApiError.badRequest('Line discounts are disabled in settings');
     if (discount < 0 || discountPercent < 0 || discountPercent > 100) throw ApiError.badRequest(`Invalid discount for ${v.sku}`);
     return {
       variantId: v._id, productId: v.productId, productName: v.productName, sku: v.sku, barcode: v.barcode, size: v.size, color: v.color,
@@ -58,9 +58,11 @@ async function priceCart(req, session, { items, billDiscount = 0, customer, bran
   const result = computeTotals(raw, { taxInclusive: settings.tax.taxInclusive, interState, billDiscount });
   const { totals } = result;
   // discount limits are measured against the sold lines only (return lines would shrink the base)
-  const soldGross = round2(result.lines.reduce((a, l) => a + (l.gross > 0 ? l.gross : 0), 0));
-  if (totals.discount > 0 && soldGross > 0) {
-    const pct = round2((totals.discount / soldGross) * 100);
+  const sold = result.lines.filter((l) => l.qty > 0);
+  const soldGross = round2(sold.reduce((a, l) => a + l.gross, 0));
+  const soldDiscount = round2(sold.reduce((a, l) => a + l.discountTotal, 0));
+  if (soldDiscount > 0 && soldGross > 0) {
+    const pct = round2((soldDiscount / soldGross) * 100);
     const roleMax = req.role.maxDiscountPercent ?? 0;
     if (pct > roleMax + 0.001) throw ApiError.forbidden(`Unauthorized discount: ${pct}% exceeds your limit of ${roleMax}%`);
     if (billDiscount > 0 && round2((totals.billDiscount / soldGross) * 100) > settings.discount.maxBillDiscountPercent) {
