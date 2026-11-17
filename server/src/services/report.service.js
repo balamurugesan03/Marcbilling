@@ -111,6 +111,24 @@ function paginateRows(rows, ctx, totalFields) {
 
 const periodCols = (label) => [C('period', label), num('bills', 'Bills'), num('qty', 'Items'), money('gross', 'Gross'), money('discount', 'Discount'), money('taxable', 'Taxable'), money('tax', 'GST'), money('total', 'Sales'), money('returns', 'Returns'), money('net', 'Net Sales')];
 
+/* payment-mode filter (?mode=cash|upi|card|digital|credit…): bills that were paid, fully or partly, that way */
+const MODE_NAMES = { cash: 'CASH', upi: 'GPAY', card: 'CARD', bank: 'BANK', credit: 'CREDIT', store_credit: 'STORE CREDIT', loyalty: 'LOYALTY', exchange: 'EXCHANGE' };
+const modeName = (m) => MODE_NAMES[m] || String(m).toUpperCase();
+function modeMatch(ctx) {
+  const m = ctx.q.mode;
+  if (!m) return {};
+  return { 'payments.mode': { $in: m === 'digital' ? ['upi', 'card'] : [m] } };
+}
+async function salesPaidBy(ctx) {
+  if (!ctx.q.mode) return null;
+  return Sale.find(saleMatch(ctx, modeMatch(ctx))).distinct('_id');
+}
+const gstTotals = (rows) => {
+  const t = {};
+  ['bills', 'qty', 'taxable', 'cgst', 'sgst', 'igst', 'tax', 'value'].forEach((k) => { t[k] = round2(rows.reduce((a, r) => a + (Number(r[k]) || 0), 0)); });
+  return t;
+};
+
 async function branchNames(companyId) {
   const bs = await Branch.find({ companyId }).select('name').lean();
   return new Map(bs.map((b) => [String(b._id), b.name]));
@@ -512,6 +530,135 @@ const REPORTS = {
         { $sort: { net: -1 } },
       ]);
       return paginateRows(rows, ctx, ['sales', 'receipts', 'refunds', 'supplier', 'net']);
+    },
+  },
+  gst_billing: {
+    group: 'Financial', financial: true, title: 'GST Billing (GPay / Card bills)',
+    columns: [C('date', 'Date', 'date'), C('invoiceNumber', 'Invoice'), C('customer', 'Customer'), C('gstin', 'Customer GSTIN'), C('mode', 'Paid by'), money('upi', 'GPay / UPI'), money('card', 'Card'), money('taxable', 'Taxable'), money('cgst', 'CGST'), money('sgst', 'SGST'), money('igst', 'IGST'), money('tax', 'Total GST'), money('total', 'Bill Total')],
+    // bills paid (fully or partly) by GPay / UPI or card; ?mode=upi or card narrows it to one
+    run: async (ctx) => {
+      const modes = ctx.q.mode === 'upi' || ctx.q.mode === 'card' ? [ctx.q.mode] : ['upi', 'card'];
+      const m = saleMatch(ctx, { 'payments.mode': { $in: modes } });
+      if (ctx.search) m.$or = [{ invoiceNumber: new RegExp(escapeRegex(ctx.search), 'i') }, { 'customer.name': new RegExp(escapeRegex(ctx.search), 'i') }, { 'customer.mobile': new RegExp(escapeRegex(ctx.search)) }];
+      const sales = await Sale.find(m).sort({ createdAt: 1 }).select('createdAt invoiceNumber customer payments totals').lean();
+      const paid = (s, mode) => round2((s.payments || []).filter((p) => p.mode === mode).reduce((a, p) => a + p.amount, 0));
+      const rows = sales.map((s) => ({
+        date: s.createdAt, invoiceNumber: s.invoiceNumber, customer: s.customer?.name || 'Walk-in', gstin: s.customer?.gstNumber || '',
+        mode: [...new Set((s.payments || []).map((p) => modeName(p.mode)))].join(' + '), upi: paid(s, 'upi'), card: paid(s, 'card'),
+        taxable: round2(s.totals.taxable), cgst: round2(s.totals.cgst), sgst: round2(s.totals.sgst), igst: round2(s.totals.igst), tax: round2(s.totals.totalTax), total: round2(s.totals.grandTotal),
+      }));
+      return paginateRows(rows, ctx, ['upi', 'card', 'taxable', 'cgst', 'sgst', 'igst', 'tax', 'total']);
+    },
+  },
+  gst_taxwise: {
+    group: 'Financial', financial: true, title: 'GST Report (Tax-wise)',
+    columns: [C('label', 'GST Rate / Invoice'), C('date', 'Date', 'date'), num('bills', 'Bills'), num('qty', 'Qty'), money('taxable', 'Taxable Value'), C('cgstRate', 'CGST %'), money('cgst', 'CGST'), C('sgstRate', 'SGST %'), money('sgst', 'SGST'), money('igst', 'IGST'), money('tax', 'Total GST'), money('value', 'Invoice Value')],
+    // every GST rate on its own: ?view=bills lists the invoices under each rate; ?mode= limits to bills paid that way
+    run: async (ctx) => {
+      const saleIds = await salesPaidBy(ctx);
+      const im = { ...saleMatch(ctx), ...(saleIds ? { saleId: { $in: saleIds } } : {}) };
+      const sums = { qty: { $sum: '$qty' }, taxable: { $sum: '$taxable' }, cgst: { $sum: '$cgst' }, sgst: { $sum: '$sgst' }, igst: { $sum: '$igst' }, tax: { $sum: '$taxAmount' }, value: { $sum: '$amount' } };
+      const retMatch = { companyId: ctx.companyId, ...ctx.branch, createdAt: { $gte: ctx.from, $lte: ctx.to }, ...(saleIds ? { saleId: { $in: saleIds } } : {}) };
+      const [byRate, rets] = await Promise.all([
+        SaleItem.aggregate([{ $match: im }, { $group: { _id: '$gstRate', bills: { $addToSet: '$saleId' }, ...sums } }, { $sort: { _id: 1 } }]),
+        // returns done on the Sales Return page (credit notes) reduce the rate they were billed at
+        SaleReturn.aggregate([{ $match: retMatch }, { $unwind: '$items' }, { $replaceRoot: { newRoot: '$items' } }, { $group: { _id: '$gstRate', ...sums } }]),
+      ]);
+      const rm = new Map(rets.map((r) => [r._id, r]));
+      const rateRow = (r, s, label, extra = {}) => {
+        const ret = rm.get(r) || {};
+        const v = (k) => round2((s[k] || 0) - (ret[k] || 0));
+        return { label, gstRate: r, cgstRate: r ? `${r / 2}%` : '0%', sgstRate: r ? `${r / 2}%` : '0%', qty: v('qty'), taxable: v('taxable'), cgst: v('cgst'), sgst: v('sgst'), igst: v('igst'), tax: v('tax'), value: v('value'), ...extra };
+      };
+      const rates = [...new Set([...byRate.map((x) => x._id), ...rets.map((x) => x._id)])].sort((a, b) => a - b);
+      let rows;
+      if (ctx.q.view === 'bills') {
+        const bills = await SaleItem.aggregate([
+          { $match: im },
+          { $group: { _id: { r: '$gstRate', s: '$saleId' }, invoiceNumber: { $first: '$invoiceNumber' }, date: { $min: '$createdAt' }, ...sums } },
+          { $sort: { '_id.r': 1, date: 1 } },
+        ]).allowDiskUse(true);
+        rows = [];
+        rates.forEach((r) => {
+          const s = byRate.find((x) => x._id === r) || {};
+          rows.push(rateRow(r, s, `GST ${r}%  (total)`, { bills: (s.bills || []).length, bold: true }));
+          bills.filter((b) => b._id.r === r).forEach((b) => rows.push({
+            label: `   ${b.invoiceNumber}`, date: b.date, cgstRate: r ? `${r / 2}%` : '0%', sgstRate: r ? `${r / 2}%` : '0%', bills: 1, qty: b.qty,
+            taxable: round2(b.taxable), cgst: round2(b.cgst), sgst: round2(b.sgst), igst: round2(b.igst), tax: round2(b.tax), value: round2(b.value),
+          }));
+          if (rm.get(r)) rows.push({ label: `   Less: returns at ${r}%`, qty: -rm.get(r).qty, taxable: -round2(rm.get(r).taxable), cgst: -round2(rm.get(r).cgst), sgst: -round2(rm.get(r).sgst), igst: -round2(rm.get(r).igst), tax: -round2(rm.get(r).tax), value: -round2(rm.get(r).value), memo: true });
+        });
+        const res = paginateRows(rows, ctx, []);
+        res.totals = gstTotals(rates.map((r) => { const s = byRate.find((x) => x._id === r) || {}; return rateRow(r, s, '', { bills: (s.bills || []).length }); }));
+        return res;
+      }
+      rows = rates.map((r) => { const s = byRate.find((x) => x._id === r) || {}; return rateRow(r, s, `GST ${r}%`, { bills: (s.bills || []).length }); });
+      const res = paginateRows(rows, ctx, []);
+      res.totals = gstTotals(rows);
+      return res;
+    },
+  },
+  sales_summary_product: {
+    group: 'Financial', financial: true, title: 'Sales Summary (Product-wise)',
+    columns: [C('productName', 'Product'), C('sku', 'SKU'), C('size', 'Size'), C('color', 'Color'), num('qty', 'Qty Sold'), num('returned', 'Returned'), num('netQty', 'Net Qty'),
+      money('sales', 'Sales Amount'), money('cost', 'Purchase Cost'), money('profit', 'Profit'), C('margin', 'Profit %', 'percent'),
+      money('cash', 'Cash'), money('upi', 'GPay / UPI'), money('card', 'Card'), money('other', 'Credit / Other'), num('stock', 'In Stock'),
+      C('lastPurchase', 'Last Purchased', 'date'), money('purchaseRate', 'Purchase Rate'), C('supplier', 'Supplier'), C('purchaseNo', 'Purchase No')],
+    // per product: what sold, profit (taxable value − purchase cost), how it was paid, stock and the last purchase; ?mode= bills paid that way
+    run: async (ctx) => {
+      const sales = await Sale.find(saleMatch(ctx, modeMatch(ctx))).select('_id payments').lean();
+      const share = new Map(sales.map((s) => {
+        const pos = (s.payments || []).reduce((a, p) => a + Math.abs(p.amount), 0) || 1;
+        const f = { cash: 0, upi: 0, card: 0, other: 0 };
+        (s.payments || []).forEach((p) => { f[['cash', 'upi', 'card'].includes(p.mode) ? p.mode : 'other'] += Math.abs(p.amount) / pos; });
+        return [String(s._id), f];
+      }));
+      const im = { ...saleMatch(ctx), saleId: { $in: sales.map((s) => s._id) } };
+      if (ctx.search) im.$or = [{ productName: new RegExp(escapeRegex(ctx.search), 'i') }, { sku: ctx.search.toUpperCase() }, { barcode: ctx.search }];
+      const items = await SaleItem.find(im).select('saleId variantId productName sku size color qty returnedQty amount taxable costPrice').lean();
+      const by = new Map();
+      for (const it of items) {
+        const k = String(it.variantId);
+        const g = by.get(k) || { variantId: it.variantId, productName: it.productName, sku: it.sku, size: it.size, color: it.color, qty: 0, returned: 0, sales: 0, taxable: 0, cost: 0, cash: 0, upi: 0, card: 0, other: 0 };
+        const returned = it.qty > 0 ? Math.min(it.returnedQty || 0, it.qty) : -it.qty; // minus lines = returned at the counter
+        const keep = it.qty > 0 ? (it.qty - returned) / it.qty : 1;
+        const amt = it.amount * keep;
+        if (it.qty > 0) g.qty += it.qty;
+        g.returned += returned;
+        g.sales += amt;
+        g.taxable += it.taxable * keep;
+        g.cost += (it.costPrice || 0) * (it.qty > 0 ? it.qty - returned : it.qty);
+        const f = share.get(String(it.saleId)) || { other: 1 };
+        ['cash', 'upi', 'card', 'other'].forEach((m) => { g[m] += amt * (f[m] || 0); });
+        by.set(k, g);
+      }
+      const ids = [...by.values()].map((g) => g.variantId);
+      const [stock, lastBuy] = await Promise.all([
+        Stock.aggregate([{ $match: { companyId: ctx.companyId, ...ctx.branch, variantId: { $in: ids } } }, { $group: { _id: '$variantId', current: { $sum: '$current' } } }]),
+        PurchaseItem.aggregate([
+          { $match: { companyId: ctx.companyId, ...ctx.branch, variantId: { $in: ids }, status: 'received' } },
+          { $sort: { invoiceDate: -1, createdAt: -1 } },
+          { $group: { _id: '$variantId', date: { $first: '$invoiceDate' }, rate: { $first: '$rate' }, purchaseId: { $first: '$purchaseId' } } },
+          { $lookup: { from: 'purchases', localField: 'purchaseId', foreignField: '_id', as: 'p' } },
+          { $project: { date: 1, rate: 1, supplier: { $first: '$p.supplierName' }, purchaseNo: { $first: '$p.purchaseNo' } } },
+        ]),
+      ]);
+      const sm = new Map(stock.map((s) => [String(s._id), s.current]));
+      const pm = new Map(lastBuy.map((p) => [String(p._id), p]));
+      const rows = [...by.values()].map((g) => {
+        const p = pm.get(String(g.variantId)) || {};
+        const profit = round2(g.taxable - g.cost);
+        return {
+          productName: g.productName, sku: g.sku, size: g.size, color: g.color, qty: g.qty, returned: g.returned, netQty: g.qty - g.returned,
+          sales: round2(g.sales), cost: round2(g.cost), profit, margin: g.taxable ? round2((profit / g.taxable) * 100) : 0,
+          cash: round2(g.cash), upi: round2(g.upi), card: round2(g.card), other: round2(g.other), stock: sm.get(String(g.variantId)) ?? 0,
+          lastPurchase: p.date, purchaseRate: p.rate, supplier: p.supplier || '', purchaseNo: p.purchaseNo || '',
+        };
+      }).sort((a, b) => b.sales - a.sales);
+      const res = paginateRows(rows, ctx, ['qty', 'returned', 'netQty', 'sales', 'cost', 'profit', 'cash', 'upi', 'card', 'other', 'stock']);
+      const tTaxable = [...by.values()].reduce((a, g) => a + g.taxable, 0);
+      res.totals.margin = tTaxable ? round2((res.totals.profit / tTaxable) * 100) : 0;
+      return res;
     },
   },
   gst_report: {

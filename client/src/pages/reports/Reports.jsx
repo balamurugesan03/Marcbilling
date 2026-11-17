@@ -99,6 +99,24 @@ export default function Reports() {
             )}
             {key === 'cash_book' && <select className="input w-32" value={extra.mode || 'cash'} onChange={(e) => setExtra({ ...extra, mode: e.target.value })}>{['cash', 'bank', 'upi', 'card'].map((m) => <option key={m} value={m}>{PAYMENT_LABELS[m]} book</option>)}</select>}
             {key === 'sales_datewise' && <select className="input w-36" value={extra.status || ''} onChange={(e) => setExtra({ ...extra, status: e.target.value || undefined })}><option value="">All status</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select>}
+            {key === 'gst_billing' && (
+              <select className="input w-40" value={extra.mode || ''} onChange={(e) => setExtra({ ...extra, mode: e.target.value || undefined })}>
+                <option value="">GPay + Card bills</option><option value="upi">GPay / UPI only</option><option value="card">Card only</option>
+              </select>
+            )}
+            {key === 'gst_taxwise' && <>
+              <select className="input w-36" value={extra.view || ''} onChange={(e) => setExtra({ ...extra, view: e.target.value || undefined })}>
+                <option value="">Rate summary</option><option value="bills">Bill-wise per rate</option>
+              </select>
+              <select className="input w-40" value={extra.mode || ''} onChange={(e) => setExtra({ ...extra, mode: e.target.value || undefined })}>
+                <option value="">All bills</option><option value="digital">GPay + Card bills</option><option value="upi">GPay / UPI bills</option><option value="card">Card bills</option><option value="cash">Cash bills</option>
+              </select>
+            </>}
+            {key === 'sales_summary_product' && (
+              <select className="input w-40" value={extra.mode || ''} onChange={(e) => setExtra({ ...extra, mode: e.target.value || undefined })}>
+                <option value="">All payment modes</option><option value="cash">Cash bills</option><option value="upi">GPay / UPI bills</option><option value="card">Card bills</option><option value="digital">GPay + Card bills</option><option value="credit">Credit bills</option>
+              </select>
+            )}
             {key === 'stock_dead' && <label className="flex items-center gap-1 text-xs">Idle days <input type="number" className="input input-sm w-20" value={extra.days || ''} placeholder="90" onChange={(e) => setExtra({ ...extra, days: e.target.value || undefined })} /></label>}
             {key === 'stock_low' && <label className="flex items-center gap-1 text-xs">Threshold <input type="number" className="input input-sm w-20" value={extra.threshold || ''} placeholder="5" onChange={(e) => setExtra({ ...extra, threshold: e.target.value || undefined })} /></label>}
             <div className="flex-1" />

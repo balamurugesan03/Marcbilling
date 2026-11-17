@@ -8,6 +8,10 @@ const PRINT_LOGO = '/loginimage.jpeg';
 const STORE_ADDRESS = 'Vellayani Jn, Trivandrum';
 const STORE_PHONE = '7907858891';
 const STORE_TAGLINE = 'the family fashion';
+// header of a bill: the branch it was billed at (its name, address, phone), falling back to the store defaults
+const branchAddress = (b) => [b?.address?.line1, b?.address?.line2, b?.address?.city].filter(Boolean).join(', ') || STORE_ADDRESS;
+const branchPhone = (b) => b?.phone || STORE_PHONE;
+const branchTitle = (branch, company) => branch?.name || company?.name || 'MARC';
 
 /** Prints an HTML document through a hidden iframe (the OS print dialog selects the printer). */
 export function printHtml(html, { title = 'Print' } = {}) {
@@ -120,10 +124,10 @@ export function receiptHtml(inv, { width = '80', duplicate = false } = {}) {
     <div class="head">
       <img src="${esc(absUrl(PRINT_LOGO))}" alt="" onerror="this.style.display='none'">
       <div class="info">
-        <div class="store">${esc(company?.name || 'MARC')}</div>
+        <div class="store">${esc(branchTitle(branch, company))}</div>
         <div class="tag">${esc(STORE_TAGLINE)}</div>
-        <div>${esc(STORE_ADDRESS.toUpperCase())}</div>
-        <div>Phone: ${esc(STORE_PHONE)}</div>
+        <div>${esc(branchAddress(branch).toUpperCase())}</div>
+        <div>Phone: ${esc(branchPhone(branch))}</div>
         ${gstin ? `<div>GSTIN: ${esc(gstin)}</div>` : ''}
       </div>
     </div>
@@ -185,9 +189,10 @@ export function a4InvoiceHtml(inv, { duplicate = false } = {}) {
   </style></head><body>
     <div class="head">
       <div>
-        ${logo ? `<img class="logo" src="${esc(absUrl(PRINT_LOGO))}" alt="${esc(company?.name)}">` : `<h1>${esc(company?.name)}</h1>`}
-        <div class="muted">${esc(STORE_ADDRESS)}</div>
-        <div class="muted">Phone: ${esc(STORE_PHONE)} ${company?.email ? `· ${esc(company.email)}` : ''}</div>
+        ${logo ? `<img class="logo" src="${esc(absUrl(PRINT_LOGO))}" alt="${esc(company?.name)}">` : `<h1>${esc(branchTitle(branch, company))}</h1>`}
+        ${logo ? `<div class="b" style="font-size:16px">${esc(branchTitle(branch, company))}</div>` : ''}
+        <div class="muted">${esc(branchAddress(branch))}</div>
+        <div class="muted">Phone: ${esc(branchPhone(branch))} ${company?.email ? `· ${esc(company.email)}` : ''}</div>
         <div><b>GSTIN:</b> ${esc(branch?.gstin || company?.gstin || '-')}</div>
       </div>
       <div class="r">
@@ -233,7 +238,7 @@ export function a4InvoiceHtml(inv, { duplicate = false } = {}) {
         ${settings?.exchangePolicy?.enabled ? `<div class="muted"><b>Exchange Policy:</b> ${esc(settings.exchangePolicy.text)}</div>` : ''}
         ${settings?.invoice?.terms ? `<div class="muted">${esc(settings.invoice.terms)}</div>` : ''}
       </div>
-      <div class="c" style="width:200px"><div style="height:50px"></div><div style="border-top:1px solid #111">Authorised Signatory</div><div class="muted">For ${esc(company?.name)}</div></div>
+      <div class="c" style="width:200px"><div style="height:50px"></div><div style="border-top:1px solid #111">Authorised Signatory</div><div class="muted">For ${esc(branchTitle(branch, company))}</div></div>
     </div>
   </body></html>`;
 }

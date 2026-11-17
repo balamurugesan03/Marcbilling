@@ -84,11 +84,11 @@ export default function App() {
           {r('/products/variants', <Variants />, ['product.view'])}
           {r('/products/barcodes', <BarcodeGenerator />, ['barcode.print'])}
           {r('/products/labels', <BarcodePrinting />, ['barcode.print'])}
-          {r('/purchase', <PurchaseHistory />, ['purchase.view', 'purchase.manage'])}
-          {r('/purchase/new', <PurchaseEntry />, ['purchase.manage'])}
-          {r('/purchase/:id/edit', <PurchaseEntry />, ['purchase.manage'])}
-          {r('/purchase/returns', <PurchaseReturns />, ['purchase.manage', 'purchase.view'])}
-          {r('/purchase/suppliers', <Masters kind="suppliers" />, ['supplier.manage', 'purchase.view'])}
+          {r('/purchase', <PurchaseHistory />, ['purchase.view', 'purchase.create', 'purchase.edit'])}
+          {r('/purchase/new', <PurchaseEntry />, ['purchase.create'])}
+          {r('/purchase/:id/edit', <PurchaseEntry />, ['purchase.edit'])}
+          {r('/purchase/returns', <PurchaseReturns />, ['purchase.return', 'purchase.view'])}
+          {r('/purchase/suppliers', <Masters kind="suppliers" />, ['supplier.view', 'purchase.view'])}
           {r('/inventory', <CurrentStock />, ['stock.view'])}
           {r('/inventory/ledger', <StockLedger />, ['stock.view'])}
           {r('/inventory/adjustments', <StockAdjustment />, ['stock.adjust'])}
@@ -98,17 +98,17 @@ export default function App() {
           {r('/customers/:id', <CustomerProfile />, ['customer.view'])}
           {r('/reports/:group', <Reports />, ['reports.view', 'reports.financial'])}
           {r('/accounts/cash', <Cash />, ['cash.manage'])}
-          {r('/accounts/payments', <Payments />, ['payment.manage'])}
-          {r('/accounts/expenses', <Expenses />, ['expense.manage'])}
-          {r('/admin/company', <Company />, ['branch.manage'])}
-          {r('/admin/branches', <Masters kind="branches" />, ['branch.manage'])}
-          {r('/admin/users', <Users />, ['user.manage'])}
-          {r('/admin/roles', <Roles />, ['role.manage'])}
-          {r('/admin/permissions', <Roles matrix />, ['role.manage'])}
-          {r('/admin/settings', <SettingsPage />, ['settings.manage'])}
+          {r('/accounts/payments', <Payments />, ['payment.view', 'payment.create'])}
+          {r('/accounts/expenses', <Expenses />, ['expense.view'])}
+          {r('/admin/company', <Company />, ['branch.edit'])}
+          {r('/admin/branches', <Masters kind="branches" />, ['branch.create', 'branch.edit'])}
+          {r('/admin/users', <Users />, ['user.view'])}
+          {r('/admin/roles', <Roles />, ['role.view'])}
+          {r('/admin/permissions', <Roles matrix />, ['role.view'])}
+          {r('/admin/settings', <SettingsPage />, ['settings.edit'])}
           {r('/admin/audit', <AuditLogs />, ['audit.view'])}
           {r('/admin/backup', <Backup />, ['backup.manage'])}
-          {r('/admin/expense-categories', <Masters kind="expenseCategories" />, ['expense.manage'])}
+          {r('/admin/expense-categories', <Masters kind="expenseCategories" />, ['expense.view'])}
           <Route path="*" element={<Empty title="Page not found" />} />
         </Route>
       </Routes>

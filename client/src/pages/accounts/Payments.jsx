@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { useAuth } from '../../store/auth';
 import toast from 'react-hot-toast';
 import { CreditCard, ArrowDownLeft, ArrowUpRight } from 'lucide-react';
 import { post, errMsg } from '../../lib/api';
@@ -39,6 +40,7 @@ function PartyPayment({ kind, mode, onClose, onDone }) {
 }
 
 export default function Payments() {
+  const can = useAuth((s) => s.can);
   const [search, setSearch] = useState('');
   const [range, setRange] = useState(defaultRange());
   const [type, setType] = useState('');
@@ -52,7 +54,7 @@ export default function Payments() {
   return (
     <div>
       <PageHeader icon={CreditCard} title="Payments" subtitle="All money in and out: sales receipts, refunds, customer collections and supplier payments"
-        actions={<><button type="button" className="btn-secondary" onClick={() => setModal({ kind: 'customer' })}><ArrowDownLeft className="h-4 w-4 text-emerald-600" /> Customer receipt <Kbd>F10</Kbd></button><button type="button" className="btn-primary" onClick={() => setModal({ kind: 'supplier' })}><ArrowUpRight className="h-4 w-4" /> Supplier payment <Kbd>F9</Kbd></button></>} />
+        actions={can('payment.create') && <><button type="button" className="btn-secondary" onClick={() => setModal({ kind: 'customer' })}><ArrowDownLeft className="h-4 w-4 text-emerald-600" /> Customer receipt <Kbd>F10</Kbd></button><button type="button" className="btn-primary" onClick={() => setModal({ kind: 'supplier' })}><ArrowUpRight className="h-4 w-4" /> Supplier payment <Kbd>F9</Kbd></button></>} />
       <DataTable url="/payments" params={{ search: ds, ...range, type, mode }} reloadKey={reloadKey}
         toolbar={<>
           <SearchBox value={search} onChange={setSearch} className="w-64" placeholder="Payment no, ref, party" />

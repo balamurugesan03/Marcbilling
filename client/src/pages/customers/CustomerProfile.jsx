@@ -65,9 +65,9 @@ export default function CustomerProfile() {
       <PageHeader icon={User} title={c.name} subtitle={`${c.code} · ${c.mobile}${c.email ? ` · ${c.email}` : ''}${c.gstNumber ? ` · GSTIN ${c.gstNumber}` : ''}`}
         actions={<>
           <button type="button" className="btn-ghost" onClick={() => navigate('/customers')}><ArrowLeft className="h-4 w-4" /> Back</button>
-          {can('customer.manage') && <button type="button" className="btn-secondary" onClick={() => setModal('loyalty')}><Gift className="h-4 w-4" /> Adjust points</button>}
-          {c.outstanding > 0 && can('payment.manage', 'customer.manage') && <button type="button" className="btn-secondary" onClick={() => setModal('receipt')}><Wallet className="h-4 w-4" /> Receive payment</button>}
-          {can('customer.manage') && <button type="button" className="btn-primary" onClick={() => setModal('edit')}><Pencil className="h-4 w-4" /> Edit</button>}
+          {can('customer.edit') && <button type="button" className="btn-secondary" onClick={() => setModal('loyalty')}><Gift className="h-4 w-4" /> Adjust points</button>}
+          {c.outstanding > 0 && can('payment.create', 'customer.edit') && <button type="button" className="btn-secondary" onClick={() => setModal('receipt')}><Wallet className="h-4 w-4" /> Receive payment</button>}
+          {can('customer.edit') && <button type="button" className="btn-primary" onClick={() => setModal('edit')}><Pencil className="h-4 w-4" /> Edit</button>}
         </>} />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Total purchases" value={inr(data.stats.total)} hint={`${data.stats.bills} bills · avg ${inr(data.stats.avg)}`} />

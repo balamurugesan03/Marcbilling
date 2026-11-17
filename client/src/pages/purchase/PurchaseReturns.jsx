@@ -73,7 +73,7 @@ export default function PurchaseReturns() {
   return (
     <div>
       <PageHeader icon={Undo2} title="Purchase Return" subtitle="Return goods to supplier — decreases stock and supplier payable" />
-      {can('purchase.manage') && (
+      {can('purchase.return') && (
         <form onSubmit={find} className="card mb-4 flex flex-wrap items-end gap-2 p-4">
           <label className="min-w-[260px] flex-1"><span className="label">Purchase no / supplier invoice no</span><input className="input" value={no} onChange={(e) => setNo(e.target.value)} placeholder="PUR-2026-00001" /></label>
           <button className="btn-primary"><Search className="h-4 w-4" /> Find purchase</button>

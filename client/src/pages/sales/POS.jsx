@@ -21,8 +21,8 @@ import { InvoiceFinder, BillSummary, ReturnItemsTable, returnValue } from './Ret
 
 const SHORTCUTS = [
   ['F1', 'Sales / new bill (any page)'], ['F3', 'Direct print last bill'], ['F4', 'Purchase entry (any page)'],
-  ['F5', 'New product (any page)'], ['F6', 'Reports (any page)'], ['F7', 'Sales summary (any page)'], ['F8', 'Purchase summary (any page)'],
-  ['F9', 'Cash payment (any page)'], ['F10', 'Cash receipt (any page)'], ['F11', 'Product search'], ['F12 / Enter', 'Payment'],
+  ['F5', 'New product (any page)'], ['F6', 'Reports (any page)'], ['F7', 'Sales summary, product-wise (any page)'], ['F8', 'Purchase summary (any page)'],
+  ['F9', 'Cash payment (any page)'], ['F10', 'Cash receipt (any page)'], ['F11', 'GST billing (any page)'], ['F12', 'GST report (any page)'], ['Alt+S', 'Product search'], ['Alt+P / Enter', 'Payment'],
   ['F2', 'Sales return from an old bill (popup)'], ['R', 'Customer does not want it: return 1 (minus line)'], ['Ctrl+R', 'Item from an earlier bill: return'], ['Alt+C', 'Customer search'], ['Alt+N', 'New customer'], ['Alt+H', 'Hold bill'], ['Alt+R', 'Recall bill'], ['Del', 'Remove selected item'],
   ['Q', 'Change quantity'], ['D', 'Item discount'], ['B', 'Bill discount'], ['E', 'Change rate'], ['↑ / ↓', 'Select item'], ['+ / −', 'Qty of selected (empty scan box)'],
   ['3*CODE', 'Scan with quantity'], ['Esc', 'Close popup'],
@@ -665,14 +665,14 @@ export default function POS() {
   // single-key shortcuts (no Ctrl needed); in the scan box they only fire while it is empty
   const letterKeys = { q: editQty, d: editDisc, b: editBillDisc, e: editRate, r: () => returnItem() };
   useHotkeys({
-    // F1 / F2 / F4–F10 are app-wide (see Layout)
+    // F1 / F2 / F4–F12 are app-wide (see Layout)
     F3: () => printLast(),
-    F11: () => { setSearchInit(code); setModal('search'); },
+    'alt+s': () => { setSearchInit(code); setModal('search'); },
     'alt+c': () => setModal('customer'),
     'alt+h': hold,
     'alt+r': () => setModal('recall'),
     'alt+n': () => { setNewCustInit(''); setModal('newCustomer'); },
-    F12: openPay,
+    'alt+p': openPay,
     ...letterKeys,
     'ctrl+q': editQty,
     'ctrl+d': editDisc,
@@ -722,7 +722,7 @@ export default function POS() {
                 }} />
               {scanBusy && <Spinner className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2" />}
             </div>
-            <button type="button" className="btn-secondary py-3" onClick={() => { setSearchInit(code); setModal('search'); }}><Search className="h-4 w-4" /> Search <Kbd>F11</Kbd></button>
+            <button type="button" className="btn-secondary py-3" onClick={() => { setSearchInit(code); setModal('search'); }}><Search className="h-4 w-4" /> Search <Kbd>Alt+S</Kbd></button>
           </div>
 
           <div className="card flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -731,7 +731,7 @@ export default function POS() {
                 <div className="flex h-full flex-col items-center justify-center gap-2 py-16 text-center text-ink-400">
                   <ScanBarcode className="h-12 w-12 opacity-40" />
                   <div className="text-sm font-medium">Scan a product barcode to start billing</div>
-                  <div className="text-xs">or press <Kbd>F11</Kbd> to search · <Kbd>Alt+R</Kbd> to recall a held bill</div>
+                  <div className="text-xs">or press <Kbd>Alt+S</Kbd> to search · <Kbd>Alt+R</Kbd> to recall a held bill</div>
                 </div>
               ) : (
                 <table className="tbl">
@@ -828,7 +828,7 @@ export default function POS() {
               <button type="button" className="btn-secondary col-span-2" onClick={newBill}><FilePlus2 className="h-4 w-4" /> New bill <Kbd>F1</Kbd></button>
             </div>
             <div className="flex-1" />
-            <button type="button" className="btn-primary btn-lg mt-3 w-full py-4 text-lg" onClick={openPay} disabled={!items.length}><CreditCard className="h-5 w-5" /> {totals.grandTotal < 0 ? `Refund ${inr(-totals.grandTotal)}` : `Pay ${inr(totals.grandTotal)}`} <Kbd>F12</Kbd></button>
+            <button type="button" className="btn-primary btn-lg mt-3 w-full py-4 text-lg" onClick={openPay} disabled={!items.length}><CreditCard className="h-5 w-5" /> {totals.grandTotal < 0 ? `Refund ${inr(-totals.grandTotal)}` : `Pay ${inr(totals.grandTotal)}`} <Kbd>Alt+P</Kbd></button>
           </div>
         </div>
       </div>

@@ -17,7 +17,7 @@ const addr = (prefix = 'address') => [
 
 const CONFIG = {
   categories: {
-    title: 'Categories', icon: FolderTree, url: '/categories', manage: ['product.create', 'product.edit'], subtitle: 'Categories and sub-categories with default GST / HSN',
+    title: 'Categories', icon: FolderTree, url: '/categories', perms: { create: ['product.create', 'product.edit'], edit: ['product.create', 'product.edit'], delete: ['product.edit', 'product.delete'] }, subtitle: 'Categories and sub-categories with default GST / HSN',
     fields: [
       { name: 'name', label: 'Name', required: true }, { name: 'code', label: 'Code' },
       { name: 'parentId', label: 'Parent category (for sub-category)', type: 'parent' },
@@ -33,13 +33,13 @@ const CONFIG = {
     defaults: { active: true, defaultGstRate: 5 },
   },
   brands: {
-    title: 'Brands', icon: Award, url: '/brands', manage: ['product.create', 'product.edit'],
+    title: 'Brands', icon: Award, url: '/brands', perms: { create: ['product.create', 'product.edit'], edit: ['product.create', 'product.edit'], delete: ['product.edit', 'product.delete'] },
     fields: [{ name: 'name', label: 'Name', required: true, span: 2 }, { name: 'description', label: 'Description', span: 2 }, { name: 'active', label: 'Active', type: 'toggle' }],
     columns: [{ key: 'name', label: 'Brand', render: (r) => <b>{r.name}</b> }, { key: 'description', label: 'Description' }, { key: 'active', label: 'Status', render: (r) => <StatusBadge status={r.active ? 'active' : 'inactive'} /> }],
     defaults: { active: true },
   },
   suppliers: {
-    title: 'Suppliers', icon: Truck, url: '/suppliers', manage: ['supplier.manage'],
+    title: 'Suppliers', icon: Truck, url: '/suppliers', perms: { create: ['supplier.create'], edit: ['supplier.edit'], delete: ['supplier.delete'] },
     fields: [
       { name: 'name', label: 'Supplier name', required: true, span: 2 }, { name: 'code', label: 'Code' }, { name: 'contactPerson', label: 'Contact person' },
       { name: 'mobile', label: 'Mobile' }, { name: 'email', label: 'Email' }, { name: 'gstin', label: 'GSTIN', upper: true }, { name: 'stateCode', label: 'State code', hint: 'e.g. 33 for Tamil Nadu (decides IGST)' },
@@ -56,7 +56,7 @@ const CONFIG = {
     defaults: { active: true, openingBalance: 0 },
   },
   branches: {
-    title: 'Branches', icon: Store, url: '/branches', manage: ['branch.manage'], noDelete: true, noPaging: true,
+    title: 'Branches', icon: Store, url: '/branches', perms: { create: ['branch.create'], edit: ['branch.edit'], delete: [] }, noDelete: true, noPaging: true,
     fields: [
       { name: 'name', label: 'Branch name', required: true }, { name: 'code', label: 'Code', required: true, upper: true }, { name: 'gstin', label: 'GSTIN', upper: true },
       { name: 'stateCode', label: 'State code', hint: 'e.g. 33 (Tamil Nadu), 32 (Kerala)' }, { name: 'phone', label: 'Phone' }, { name: 'email', label: 'Email' },
@@ -71,7 +71,7 @@ const CONFIG = {
     defaults: { active: true },
   },
   expenseCategories: {
-    title: 'Expense Categories', icon: Receipt, url: '/expense-categories', manage: ['expense.manage'],
+    title: 'Expense Categories', icon: Receipt, url: '/expense-categories', perms: { create: ['expense.create', 'expense.edit'], edit: ['expense.edit'], delete: ['expense.delete'] },
     fields: [{ name: 'name', label: 'Name', required: true, span: 2 }, { name: 'description', label: 'Description', span: 2 }, { name: 'active', label: 'Active', type: 'toggle' }],
     columns: [{ key: 'name', label: 'Category', render: (r) => <b>{r.name}</b> }, { key: 'description', label: 'Description' }, { key: 'active', label: 'Status', render: (r) => <StatusBadge status={r.active ? 'active' : 'inactive'} /> }],
     defaults: { active: true },
@@ -136,28 +136,31 @@ export default function Masters({ kind }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [branchRows, setBranchRows] = useState(null);
   const ds = useDebounce(search, 300);
-  const manage = can(...cfg.manage);
+  // module-wise: New needs create, the pencil / row click needs edit, the bin needs delete
+  const canCreate = can(...cfg.perms.create);
+  const canEdit = can(...cfg.perms.edit);
+  const canDelete = !cfg.noDelete && cfg.perms.delete.length > 0 && can(...cfg.perms.delete);
   useEffect(() => { if (cfg.noPaging) get(cfg.url).then(setBranchRows).catch((e) => toast.error(errMsg(e))); }, [reloadKey, kind]);
   const remove = async (r) => {
     if (!(await confirm({ title: `Delete ${r.name}?`, message: 'Items in use cannot be deleted — mark them inactive instead.', danger: true, confirmText: 'Delete' }))) return;
     try { await del(`${cfg.url}/${r._id}`); toast.success('Deleted'); setReloadKey((k) => k + 1); } catch (e) { toast.error(errMsg(e)); }
   };
-  const columns = [...cfg.columns, manage && {
+  const columns = [...cfg.columns, (canEdit || canDelete) && {
     key: 'actions', label: '', render: (r) => (
       <div className="flex justify-end gap-1">
-        <button type="button" className="btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); setEdit(r); }}><Pencil className="h-3.5 w-3.5" /></button>
-        {!cfg.noDelete && <button type="button" className="btn-ghost btn-sm text-rose-600" onClick={(e) => { e.stopPropagation(); remove(r); }}><Trash2 className="h-3.5 w-3.5" /></button>}
+        {canEdit && <button type="button" className="btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); setEdit(r); }}><Pencil className="h-3.5 w-3.5" /></button>}
+        {canDelete && <button type="button" className="btn-ghost btn-sm text-rose-600" onClick={(e) => { e.stopPropagation(); remove(r); }}><Trash2 className="h-3.5 w-3.5" /></button>}
       </div>
     ),
   }].filter(Boolean);
   return (
     <div>
-      <PageHeader icon={cfg.icon} title={cfg.title} subtitle={cfg.subtitle} actions={manage && <button type="button" className="btn-primary" onClick={() => setEdit({})}><Plus className="h-4 w-4" /> New</button>} />
+      <PageHeader icon={cfg.icon} title={cfg.title} subtitle={cfg.subtitle} actions={canCreate && <button type="button" className="btn-primary" onClick={() => setEdit({})}><Plus className="h-4 w-4" /> New</button>} />
       {cfg.noPaging ? (
         <div className="card overflow-hidden"><table className="tbl"><thead><tr>{columns.map((c) => <th key={c.key} className={c.num ? 'num' : ''}>{c.label}</th>)}</tr></thead>
           <tbody>{(branchRows || []).map((r) => <tr key={r._id}>{columns.map((c) => <td key={c.key} className={c.num ? 'num' : ''}>{c.render ? c.render(r) : r[c.key]}</td>)}</tr>)}</tbody></table></div>
       ) : (
-        <DataTable url={cfg.url} params={{ search: ds }} reloadKey={reloadKey} columns={columns} onRowClick={manage ? (r) => setEdit(r) : undefined}
+        <DataTable url={cfg.url} params={{ search: ds }} reloadKey={reloadKey} columns={columns} onRowClick={canEdit ? (r) => setEdit(r) : undefined}
           toolbar={<SearchBox value={search} onChange={setSearch} className="w-72" />} />
       )}
       {edit && <MasterForm cfg={cfg} doc={edit._id ? edit : null} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); setReloadKey((k) => k + 1); if (kind === 'branches') reloadBranches(); }} />}

@@ -8,26 +8,26 @@ const v = require('../validators');
 
 const companies = express.Router();
 companies.get('/current', c.getCompany);
-companies.put('/current', permit('branch.manage'), validate(v.org.company), c.updateCompany);
-companies.post('/current/logo', permit('branch.manage'), imageUpload.single('logo'), c.uploadLogo);
+companies.put('/current', permit('branch.edit'), validate(v.org.company), c.updateCompany);
+companies.post('/current/logo', permit('branch.edit'), imageUpload.single('logo'), c.uploadLogo);
 
 const branches = express.Router();
 branches.get('/', c.listBranches);
-branches.post('/', permit('branch.manage'), validate(v.org.branch), c.createBranch);
-branches.put('/:id', permit('branch.manage'), validate(v.org.branch.partial()), c.updateBranch);
+branches.post('/', permit('branch.create'), validate(v.org.branch), c.createBranch);
+branches.put('/:id', permit('branch.edit'), validate(v.org.branch.partial()), c.updateBranch);
 
 const roles = express.Router();
-roles.get('/', permit('role.manage', 'user.manage'), c.listRoles);
-roles.post('/', permit('role.manage'), validate(v.org.role), c.createRole);
-roles.put('/:id', permit('role.manage'), validate(v.org.role.partial()), c.updateRole);
-roles.delete('/:id', permit('role.manage'), c.deleteRole);
+roles.get('/', permit('role.view', 'user.view', 'user.create', 'user.edit'), c.listRoles);
+roles.post('/', permit('role.create'), validate(v.org.role), c.createRole);
+roles.put('/:id', permit('role.edit'), validate(v.org.role.partial()), c.updateRole);
+roles.delete('/:id', permit('role.delete'), c.deleteRole);
 
 const permissions = express.Router();
-permissions.get('/', permit('role.manage', 'user.manage'), c.listPermissions);
+permissions.get('/', permit('role.view', 'user.view'), c.listPermissions);
 
 const users = express.Router();
-users.get('/', permit('user.manage'), c.listUsers);
-users.post('/', permit('user.manage'), validate(v.org.userCreate), c.createUser);
-users.put('/:id', permit('user.manage'), validate(v.org.userUpdate), c.updateUser);
+users.get('/', permit('user.view'), c.listUsers);
+users.post('/', permit('user.create'), validate(v.org.userCreate), c.createUser);
+users.put('/:id', permit('user.edit'), validate(v.org.userUpdate), c.updateUser);
 
 module.exports = { companies, branches, roles, permissions, users };

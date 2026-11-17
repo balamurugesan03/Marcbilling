@@ -62,13 +62,13 @@ export function PurchaseDetail({ id, onClose, onChanged }) {
       footer={p && <>
         <button type="button" className="btn-secondary mr-auto" onClick={print}><Printer className="h-4 w-4" /> Print</button>
         {can('barcode.print') && <button type="button" className="btn-secondary" onClick={() => navigate('/products/labels', { state: { variants: p.items.map((i) => ({ _id: i.variantId, productName: i.productName, sku: i.sku, barcode: i.barcode, size: i.size, color: i.color, mrp: i.mrp, sellingPrice: i.sellingPrice, qty: i.qty })) } })}><Tag className="h-4 w-4" /> Print labels</button>}
-        {p.status === 'draft' && can('purchase.manage') && <>
-          <button type="button" className="btn-danger" onClick={cancel}><Ban className="h-4 w-4" /> Cancel</button>
-          <button type="button" className="btn-secondary" onClick={() => navigate(`/purchase/${id}/edit`)}><Pencil className="h-4 w-4" /> Edit</button>
-          <button type="button" className="btn-primary" onClick={receive}><PackageCheck className="h-4 w-4" /> Receive stock</button>
+        {p.status === 'draft' && <>
+          {can('purchase.delete') && <button type="button" className="btn-danger" onClick={cancel}><Ban className="h-4 w-4" /> Cancel</button>}
+          {can('purchase.edit') && <button type="button" className="btn-secondary" onClick={() => navigate(`/purchase/${id}/edit`)}><Pencil className="h-4 w-4" /> Edit</button>}
+          {can('purchase.create', 'purchase.edit') && <button type="button" className="btn-primary" onClick={receive}><PackageCheck className="h-4 w-4" /> Receive stock</button>}
         </>}
-        {p.status === 'received' && can('purchase.manage') && <button type="button" className="btn-secondary" onClick={() => setRet(true)}><Undo2 className="h-4 w-4" /> Return</button>}
-        {p.status === 'received' && p.dueAmount > 0 && can('payment.manage', 'purchase.manage') && <button type="button" className="btn-primary" onClick={() => setPay(true)}><Wallet className="h-4 w-4" /> Pay</button>}
+        {p.status === 'received' && can('purchase.return') && <button type="button" className="btn-secondary" onClick={() => setRet(true)}><Undo2 className="h-4 w-4" /> Return</button>}
+        {p.status === 'received' && p.dueAmount > 0 && can('payment.create') && <button type="button" className="btn-primary" onClick={() => setPay(true)}><Wallet className="h-4 w-4" /> Pay</button>}
       </>}>
       {!p ? <Loading /> : (
         <div className="space-y-4">
@@ -117,7 +117,7 @@ export default function PurchaseHistory() {
   const ds = useDebounce(search, 300);
   return (
     <div>
-      <PageHeader icon={Truck} title="Purchase History" actions={can('purchase.manage') && <button type="button" className="btn-primary" onClick={() => navigate('/purchase/new')}><Plus className="h-4 w-4" /> Purchase entry</button>} />
+      <PageHeader icon={Truck} title="Purchase History" actions={can('purchase.create') && <button type="button" className="btn-primary" onClick={() => navigate('/purchase/new')}><Plus className="h-4 w-4" /> Purchase entry</button>} />
       <DataTable url="/purchases" params={{ search: ds, ...range, status }} reloadKey={reloadKey} onRowClick={(r) => setOpen(r._id)}
         toolbar={<>
           <SearchBox value={search} onChange={setSearch} placeholder="Purchase no, supplier invoice, supplier" className="w-72" />

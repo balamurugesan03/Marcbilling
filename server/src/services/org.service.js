@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs');
 const { Company, Branch, Role, User, RefreshToken, Permission } = require('../models');
 const ApiError = require('../utils/ApiError');
 const { paginate, escapeRegex, pick } = require('../utils/common');
-const { PERMISSIONS, ALL_PERMISSIONS } = require('../constants/permissions');
+const { PERMISSIONS, ALL_PERMISSIONS, LEGACY_PERMISSIONS } = require('../constants/permissions');
 const audit = require('./audit.service');
 
 /* ---------- Company ---------- */
@@ -46,9 +46,13 @@ const listPermissions = async () => {
   return stored.length ? stored : PERMISSIONS;
 };
 
-const listRoles = (req) => Role.find({ companyId: req.companyId }).sort({ system: -1, name: 1 }).lean();
+const listRoles = async (req) => (await Role.find({ companyId: req.companyId }).sort({ system: -1, name: 1 }).lean())
+  .map((r) => ({ ...r, permissions: r.code === 'super_admin' ? ALL_PERMISSIONS : cleanPerms(r.permissions, { strict: false }) }));
 
-function cleanPerms(perms = []) {
+/** Old "manage" keys are expanded to the module-wise keys; unknown keys are rejected (or dropped when strict is false). */
+function cleanPerms(input = [], { strict = true } = {}) {
+  const perms = input.flatMap((k) => LEGACY_PERMISSIONS[k] || [k]);
+  if (!strict) return [...new Set(perms.filter((p) => ALL_PERMISSIONS.includes(p)))];
   const bad = perms.filter((p) => !ALL_PERMISSIONS.includes(p));
   if (bad.length) throw ApiError.badRequest(`Unknown permissions: ${bad.join(', ')}`);
   return [...new Set(perms)];

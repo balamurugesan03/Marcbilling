@@ -17,7 +17,7 @@ export default function Customers() {
   const ds = useDebounce(search, 300);
   return (
     <div>
-      <PageHeader icon={Users} title="Customers" actions={can('customer.manage') && <button type="button" className="btn-primary" onClick={() => setEdit({})}><Plus className="h-4 w-4" /> New customer</button>} />
+      <PageHeader icon={Users} title="Customers" actions={can('customer.create') && <button type="button" className="btn-primary" onClick={() => setEdit({})}><Plus className="h-4 w-4" /> New customer</button>} />
       <DataTable url="/customers" params={{ search: ds, outstanding: filter === 'due' ? 'true' : undefined, storeCredit: filter === 'credit' ? 'true' : undefined }} reloadKey={reloadKey}
         onRowClick={(r) => navigate(`/customers/${r._id}`)}
         toolbar={<>

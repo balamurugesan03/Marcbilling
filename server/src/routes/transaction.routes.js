@@ -30,14 +30,14 @@ exchanges.get('/:id', permit('sale.view', 'sale.exchange'), e.get);
 exchanges.post('/', permit('sale.exchange'), requireBranch, validate(v.sale.exchange), e.create);
 
 const purchases = express.Router();
-purchases.get('/returns', permit('purchase.view', 'purchase.manage'), p.listReturns);
-purchases.post('/returns', permit('purchase.manage'), validate(v.purchase.return), p.createReturn);
-purchases.get('/', permit('purchase.view', 'purchase.manage'), p.list);
-purchases.post('/', permit('purchase.manage'), validate(v.purchase.create), p.create);
-purchases.get('/:id', permit('purchase.view', 'purchase.manage'), p.get);
-purchases.put('/:id', permit('purchase.manage'), validate(v.purchase.create), p.update);
-purchases.post('/:id/receive', permit('purchase.manage'), validate(v.purchase.receive), p.receive);
-purchases.post('/:id/cancel', permit('purchase.manage'), p.cancel);
+purchases.get('/returns', permit('purchase.view', 'purchase.return'), p.listReturns);
+purchases.post('/returns', permit('purchase.return'), validate(v.purchase.return), p.createReturn);
+purchases.get('/', permit('purchase.view', 'purchase.create', 'purchase.edit'), p.list);
+purchases.post('/', permit('purchase.create'), validate(v.purchase.create), p.create);
+purchases.get('/:id', permit('purchase.view', 'purchase.create', 'purchase.edit', 'purchase.return'), p.get);
+purchases.put('/:id', permit('purchase.edit'), validate(v.purchase.create), p.update);
+purchases.post('/:id/receive', permit('purchase.create', 'purchase.edit'), validate(v.purchase.receive), p.receive);
+purchases.post('/:id/cancel', permit('purchase.delete'), p.cancel);
 
 const transfers = express.Router();
 transfers.get('/', permit('stock.transfer', 'stock.view'), t.list);

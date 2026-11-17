@@ -87,7 +87,7 @@ async function list(req) {
   const filter = { companyId: req.companyId, ...req.branchScope, ...dateRange(q.from, q.to, 'openedAt') };
   if (q.userId) filter.userId = q.userId;
   if (q.status) filter.status = q.status;
-  if (!req.perms.has('reports.financial') && !req.perms.has('payment.manage')) filter.userId = req.user._id;
+  if (!req.perms.has('reports.financial') && !req.perms.has('payment.view')) filter.userId = req.user._id;
   const res = await paginate(CashSession, filter, q, { defaultSort: { openedAt: -1 }, populate: { path: 'branchId', select: 'name' } });
   for (const s of res.items) if (s.status === 'open') s.summary = await computeSummary(s);
   return res;

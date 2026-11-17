@@ -61,12 +61,13 @@ export default function Users() {
   const [edit, setEdit] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
   const me = useAuth((s) => s.user);
+  const can = useAuth((s) => s.can);
   const ds = useDebounce(search, 300);
   useEffect(() => { get('/roles').then(setRoles); get('/branches').then(setBranches); }, []);
   return (
     <div>
-      <PageHeader icon={UserCog} title="Users" subtitle="Staff accounts, roles and branch access" actions={<button type="button" className="btn-primary" onClick={() => setEdit({})}><Plus className="h-4 w-4" /> New user</button>} />
-      <DataTable url="/users" params={{ search: ds }} reloadKey={reloadKey} onRowClick={(r) => setEdit(r)} toolbar={<SearchBox value={search} onChange={setSearch} className="w-64" />}
+      <PageHeader icon={UserCog} title="Users" subtitle="Staff accounts, roles and branch access" actions={can('user.create') && <button type="button" className="btn-primary" onClick={() => setEdit({})}><Plus className="h-4 w-4" /> New user</button>} />
+      <DataTable url="/users" params={{ search: ds }} reloadKey={reloadKey} onRowClick={can('user.edit') ? (r) => setEdit(r) : undefined} toolbar={<SearchBox value={search} onChange={setSearch} className="w-64" />}
         columns={[
           { key: 'name', label: 'Name', render: (r) => <><b>{r.name}</b>{r._id === me._id && <span className="badge-brand ml-2">You</span>}<div className="text-xs text-ink-500">@{r.username}</div></> },
           { key: 'role', label: 'Role', render: (r) => <span className="badge-blue">{r.roleId?.name}</span> },

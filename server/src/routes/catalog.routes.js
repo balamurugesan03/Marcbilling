@@ -6,22 +6,23 @@ const { permit } = require('../middleware/auth');
 const { imageUpload } = require('../middleware/upload');
 const v = require('../validators');
 
-function masterRouter(kind, schema, { view, manage }) {
+function masterRouter(kind, schema, { view, create, edit, remove }) {
   const r = express.Router();
   const h = masterHandlers(kind);
   r.get('/', permit(...view), h.list);
   r.get('/:id', permit(...view), h.get);
-  r.post('/', permit(...manage), validate(schema), h.create);
-  r.put('/:id', permit(...manage), validate(schema.partial()), h.update);
-  r.delete('/:id', permit(...manage), h.remove);
+  r.post('/', permit(...create), validate(schema), h.create);
+  r.put('/:id', permit(...edit), validate(schema.partial()), h.update);
+  r.delete('/:id', permit(...remove), h.remove);
   return r;
 }
 
-const ANY_PRODUCT = ['product.view', 'sale.create', 'purchase.manage', 'stock.view'];
-const categories = masterRouter('category', v.master.category, { view: ANY_PRODUCT, manage: ['product.create', 'product.edit'] });
-const brands = masterRouter('brand', v.master.brand, { view: ANY_PRODUCT, manage: ['product.create', 'product.edit'] });
-const suppliers = masterRouter('supplier', v.master.supplier, { view: ['purchase.view', 'purchase.manage', 'supplier.manage', 'payment.manage', 'product.view'], manage: ['supplier.manage'] });
-const expenseCategories = masterRouter('expenseCategory', v.master.expenseCategory, { view: ['expense.manage', 'reports.financial'], manage: ['expense.manage'] });
+const ANY_PRODUCT = ['product.view', 'sale.create', 'purchase.create', 'purchase.edit', 'stock.view'];
+const PRODUCT_MASTER = { create: ['product.create', 'product.edit'], edit: ['product.create', 'product.edit'], remove: ['product.edit', 'product.delete'] };
+const categories = masterRouter('category', v.master.category, { view: ANY_PRODUCT, ...PRODUCT_MASTER });
+const brands = masterRouter('brand', v.master.brand, { view: ANY_PRODUCT, ...PRODUCT_MASTER });
+const suppliers = masterRouter('supplier', v.master.supplier, { view: ['supplier.view', 'purchase.view', 'purchase.create', 'purchase.edit', 'payment.view', 'product.view'], create: ['supplier.create'], edit: ['supplier.edit'], remove: ['supplier.delete'] });
+const expenseCategories = masterRouter('expenseCategory', v.master.expenseCategory, { view: ['expense.view', 'expense.create', 'reports.financial'], create: ['expense.create', 'expense.edit'], edit: ['expense.edit'], remove: ['expense.delete'] });
 
 const products = express.Router();
 products.get('/variants/search', permit(...ANY_PRODUCT, 'stock.transfer', 'stock.adjust'), p.searchVariants);
@@ -34,7 +35,7 @@ products.put('/:id', permit('product.edit'), validate(v.product.update), p.updat
 products.delete('/:id', permit('product.delete'), p.remove);
 
 const barcodes = express.Router();
-barcodes.get('/lookup/:code', permit('sale.create', 'product.view', 'purchase.manage', 'stock.transfer', 'stock.adjust', 'stock.view'), b.lookup);
+barcodes.get('/lookup/:code', permit('sale.create', 'product.view', 'purchase.create', 'purchase.edit', 'stock.transfer', 'stock.adjust', 'stock.view'), b.lookup);
 barcodes.post('/validate', permit('product.create', 'product.edit', 'barcode.print'), validate(v.barcode.validate), b.validate);
 barcodes.post('/bulk-generate', permit('barcode.print'), validate(v.barcode.bulk), b.bulkGenerate);
 barcodes.post('/labels', permit('barcode.print'), validate(v.barcode.labels), b.labels);

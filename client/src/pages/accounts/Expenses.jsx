@@ -43,6 +43,7 @@ function ExpenseForm({ doc, cats, onClose, onDone }) {
 }
 
 export default function Expenses() {
+  const can = useAuth((s) => s.can);
   const [cats, setCats] = useState([]);
   const [search, setSearch] = useState('');
   const [range, setRange] = useState(defaultRange());
@@ -60,7 +61,7 @@ export default function Expenses() {
   return (
     <div>
       <PageHeader icon={Receipt} title="Expenses" subtitle={summary ? `Total ${inr(summary.total)} for the period` : 'Branch expenses (cash / bank)'}
-        actions={<><Link to="/admin/expense-categories" className="btn-secondary">Categories</Link><button type="button" className="btn-primary" onClick={() => setEdit({})} disabled={!cats.length}><Plus className="h-4 w-4" /> New expense</button></>} />
+        actions={<><Link to="/admin/expense-categories" className="btn-secondary">Categories</Link>{can('expense.create') && <button type="button" className="btn-primary" onClick={() => setEdit({})} disabled={!cats.length}><Plus className="h-4 w-4" /> New expense</button>}</>} />
       <DataTable url="/expenses" params={{ search: ds, ...range, categoryId, paymentMode: mode }} reloadKey={reloadKey} onData={(d) => setSummary(d.summary)}
         toolbar={<>
           <SearchBox value={search} onChange={setSearch} className="w-60" />
@@ -80,8 +81,8 @@ export default function Expenses() {
           { key: 'status', label: 'Status', render: (r) => <StatusBadge status={r.status} /> },
           { key: 'a', label: '', render: (r) => r.status === 'active' && (
             <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-              <button type="button" className="btn-ghost btn-sm" onClick={() => setEdit(r)}>Edit</button>
-              <button type="button" className="btn-ghost btn-sm text-rose-600" onClick={() => cancel(r)}><Ban className="h-3.5 w-3.5" /></button>
+              {can('expense.edit') && <button type="button" className="btn-ghost btn-sm" onClick={() => setEdit(r)}>Edit</button>}
+              {can('expense.delete') && <button type="button" className="btn-ghost btn-sm text-rose-600" onClick={() => cancel(r)}><Ban className="h-3.5 w-3.5" /></button>}
             </div>
           ) },
         ]} />

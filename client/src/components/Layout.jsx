@@ -36,10 +36,10 @@ export const NAV = [
   },
   {
     label: 'Purchase', icon: Truck, children: [
-      { label: 'Purchase Entry', to: '/purchase/new', perm: ['purchase.manage'] },
-      { label: 'Purchase History', to: '/purchase', perm: ['purchase.view', 'purchase.manage'] },
-      { label: 'Purchase Return', to: '/purchase/returns', perm: ['purchase.manage'] },
-      { label: 'Suppliers', to: '/purchase/suppliers', perm: ['supplier.manage', 'purchase.view'] },
+      { label: 'Purchase Entry', to: '/purchase/new', perm: ['purchase.create'] },
+      { label: 'Purchase History', to: '/purchase', perm: ['purchase.view', 'purchase.create', 'purchase.edit'] },
+      { label: 'Purchase Return', to: '/purchase/returns', perm: ['purchase.return'] },
+      { label: 'Suppliers', to: '/purchase/suppliers', perm: ['supplier.view', 'purchase.view'] },
     ],
   },
   {
@@ -71,19 +71,19 @@ export const NAV = [
   {
     label: 'Accounts', icon: Wallet, children: [
       { label: 'Cash', to: '/accounts/cash', perm: ['cash.manage'] },
-      { label: 'Payments', to: '/accounts/payments', perm: ['payment.manage'] },
-      { label: 'Expenses', to: '/accounts/expenses', perm: ['expense.manage'] },
-      { label: 'Expense Categories', to: '/admin/expense-categories', perm: ['expense.manage'] },
+      { label: 'Payments', to: '/accounts/payments', perm: ['payment.view', 'payment.create'] },
+      { label: 'Expenses', to: '/accounts/expenses', perm: ['expense.view'] },
+      { label: 'Expense Categories', to: '/admin/expense-categories', perm: ['expense.view'] },
     ],
   },
   {
     label: 'Administration', icon: Settings, children: [
-      { label: 'Company', to: '/admin/company', perm: ['branch.manage'] },
-      { label: 'Branches', to: '/admin/branches', perm: ['branch.manage'] },
-      { label: 'Users', to: '/admin/users', perm: ['user.manage'] },
-      { label: 'Roles', to: '/admin/roles', perm: ['role.manage'] },
-      { label: 'Permissions', to: '/admin/permissions', perm: ['role.manage'] },
-      { label: 'Settings', to: '/admin/settings', perm: ['settings.manage'] },
+      { label: 'Company', to: '/admin/company', perm: ['branch.edit'] },
+      { label: 'Branches', to: '/admin/branches', perm: ['branch.create', 'branch.edit'] },
+      { label: 'Users', to: '/admin/users', perm: ['user.view'] },
+      { label: 'Roles', to: '/admin/roles', perm: ['role.view'] },
+      { label: 'Permissions', to: '/admin/permissions', perm: ['role.view'] },
+      { label: 'Settings', to: '/admin/settings', perm: ['settings.edit'] },
       { label: 'Audit Logs', to: '/admin/audit', perm: ['audit.view'] },
       { label: 'Backup', to: '/admin/backup', perm: ['backup.manage'] },
     ],
@@ -197,7 +197,8 @@ export default function Layout() {
 
   // app-wide function keys (passed on to the popup while one is open, e.g. F10 = full cash in payment):
   // F1 sales (new bill) · F2 sales return · F4 purchase entry · F5 new product · F6 reports
-  // F7 sales summary · F8 purchase summary · F9 cash payment (supplier) · F10 cash receipt (customer)
+  // F7 sales summary (product-wise) · F8 purchase summary · F9 cash payment (supplier) · F10 cash receipt (customer)
+  // F11 GST billing (GPay / card bills) · F12 GST report (tax-wise)
   // (F3 = direct print of the last bill, handled inside POS).
   // With restart, a fresh state value tells the page to start over even when it is already open;
   // without it nothing happens if that page is already open, so a half-filled form is not lost.
@@ -222,13 +223,15 @@ export default function Layout() {
       navigate('/pos', { state: { openReturn: Date.now() } });
       return undefined;
     },
-    F4: goTo('/purchase/new', 'purchase.manage'),
+    F4: goTo('/purchase/new', 'purchase.create'),
     F5: goTo('/products/new', 'product.create'),
     F6: report(['/reports/Sales', 'reports.view'], ['/reports/Financial?r=sales_statement', 'reports.financial']),
-    F7: report(['/reports/Financial?r=fin_sales', 'reports.financial'], ['/reports/Sales?r=sales_daily', 'reports.view']),
+    F7: report(['/reports/Financial?r=sales_summary_product', 'reports.financial'], ['/reports/Sales?r=sales_product', 'reports.view']),
     F8: report(['/reports/Financial?r=fin_purchase', 'reports.financial'], ['/reports/Purchase?r=purchase_datewise', 'reports.view']),
-    F9: goTo('/accounts/payments', 'payment.manage', { restart: true, state: { open: 'supplier', mode: 'cash' } }),
-    F10: goTo('/accounts/payments', 'payment.manage', { restart: true, state: { open: 'customer', mode: 'cash' } }),
+    F9: goTo('/accounts/payments', 'payment.create', { restart: true, state: { open: 'supplier', mode: 'cash' } }),
+    F10: goTo('/accounts/payments', 'payment.create', { restart: true, state: { open: 'customer', mode: 'cash' } }),
+    F11: goTo('/reports/Financial?r=gst_billing', 'reports.financial'), // GST billing: GPay / card bills
+    F12: goTo('/reports/Financial?r=gst_taxwise', 'reports.financial'), // GST report, each tax rate separately
   });
 
   // close menus on navigation, outside click and Escape
