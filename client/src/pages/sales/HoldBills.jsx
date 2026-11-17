@@ -33,7 +33,7 @@ export default function HoldBills() {
     <div>
       <PageHeader icon={PauseCircle} title="Hold Bills" subtitle="Bills parked at the counter. Recall to continue billing." />
       <div className="card overflow-hidden">
-        {loading && !data ? <Loading /> : !data?.length ? <Empty title="No held bills" hint="Press F5 in POS to hold a bill." /> : (
+        {loading && !data ? <Loading /> : !data?.length ? <Empty title="No held bills" hint="Press Alt+H in POS to hold a bill." /> : (
           <table className="tbl">
             <thead><tr><th>Bill No</th><th>Customer</th><th className="num">Items</th><th className="num">Amount</th><th>Cashier</th><th>Time</th><th>Note</th><th /></tr></thead>
             <tbody>

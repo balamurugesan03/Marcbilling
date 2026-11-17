@@ -19,7 +19,7 @@ export default function SalesReturn() {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null);
   const company = useAuth((s) => s.company);
-  // F7 (from any page) opens a blank return form
+  // F2 (from any page) opens a blank return form
   const fresh = useLocation().state?.fresh;
   useEffect(() => {
     if (!fresh) return;

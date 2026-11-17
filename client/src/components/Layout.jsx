@@ -195,14 +195,35 @@ export default function Layout() {
   }, [user?._id]);
   useEffect(() => { joinBranch(branchId); }, [branchId]);
 
-  // app-wide: F6 new bill, F7 new sales return (ignored while a popup is open, e.g. mid-payment).
-  // A fresh state value tells the page to start over, even when it is already open.
-  const goTo = (path, perm) => () => {
-    if (document.querySelector('[role="dialog"]')) return;
-    if (!can(perm)) { toast.error('You do not have access to this page'); return; }
-    navigate(path, { state: { fresh: Date.now() } });
+  // app-wide function keys (passed on to the popup while one is open, e.g. F10 = full cash in payment):
+  // F1 sales (new bill) · F2 sales return · F4 purchase entry · F5 new product · F6 reports
+  // F7 sales summary · F8 purchase summary · F9 cash payment (supplier) · F10 cash receipt (customer)
+  // (F3 = direct print of the last bill, handled inside POS).
+  // With restart, a fresh state value tells the page to start over even when it is already open;
+  // without it nothing happens if that page is already open, so a half-filled form is not lost.
+  const goTo = (path, perms, { restart = false, state } = {}) => () => {
+    if (document.querySelector('[role="dialog"]')) return false;
+    if (!perms || !can(...[].concat(perms))) { toast.error('You do not have access to this page'); return undefined; }
+    if (!restart && `${location.pathname}${location.search}` === path) return undefined;
+    navigate(path, restart ? { state: { ...state, fresh: Date.now() } } : undefined);
+    return undefined;
   };
-  useHotkeys({ F6: goTo('/pos', 'sale.create'), F7: goTo('/sales/return', 'sale.return') });
+  // pick the first report the user is allowed to see
+  const report = (...options) => {
+    const hit = options.find(([, perm]) => can(perm));
+    return hit ? goTo(hit[0], hit[1]) : goTo('/', null);
+  };
+  useHotkeys({
+    F1: goTo('/pos', 'sale.create', { restart: true }),
+    F2: goTo('/sales/return', 'sale.return', { restart: true }),
+    F4: goTo('/purchase/new', 'purchase.manage'),
+    F5: goTo('/products/new', 'product.create'),
+    F6: report(['/reports/Sales', 'reports.view'], ['/reports/Financial?r=sales_statement', 'reports.financial']),
+    F7: report(['/reports/Financial?r=fin_sales', 'reports.financial'], ['/reports/Sales?r=sales_daily', 'reports.view']),
+    F8: report(['/reports/Financial?r=fin_purchase', 'reports.financial'], ['/reports/Purchase?r=purchase_datewise', 'reports.view']),
+    F9: goTo('/accounts/payments', 'payment.manage', { restart: true, state: { open: 'supplier', mode: 'cash' } }),
+    F10: goTo('/accounts/payments', 'payment.manage', { restart: true, state: { open: 'customer', mode: 'cash' } }),
+  });
 
   // close menus on navigation, outside click and Escape
   useEffect(() => { setOpenGroup(null); setMobileNav(false); }, [location.pathname, location.search]);
@@ -230,7 +251,7 @@ export default function Layout() {
               {branches.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
             </select>
           </div>
-          {can('sale.create') && <button type="button" className={clsx('btn-primary shrink-0', isPOS && 'ring-2 ring-white/40')} onClick={() => navigate('/pos')} title="POS Billing (F6 = new bill)"><ShoppingCart className="h-4 w-4" /> <span className="hidden sm:inline">POS Billing</span></button>}
+          {can('sale.create') && <button type="button" className={clsx('btn-primary shrink-0', isPOS && 'ring-2 ring-white/40')} onClick={() => navigate('/pos')} title="POS Billing (F1 = new bill)"><ShoppingCart className="h-4 w-4" /> <span className="hidden sm:inline">POS Billing</span></button>}
           {branchId === 'all' && <span className="badge-amber hidden sm:inline-flex">Consolidated view</span>}
           <div className="flex-1" />
           <button type="button" className="rounded-lg p-2 text-ink-300 hover:bg-white/5 hover:text-white" onClick={toggleTheme} aria-label="Toggle theme">{theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}</button>

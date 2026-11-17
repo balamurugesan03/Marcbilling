@@ -43,6 +43,7 @@ export function useFetch(url, params = {}, { enabled = true, deps = [] } = {}) {
 /**
  * Global keyboard shortcuts. map: { 'F2': fn, 'ctrl+q': fn, 'Delete': fn }
  * Function keys always fire; plain keys are ignored while typing in inputs unless allowInInputs.
+ * Return false from a handler to let the key pass on to other listeners.
  */
 export function useHotkeys(map, { enabled = true, allowInInputs = [] } = {}) {
   const ref = useRef(map);
@@ -61,9 +62,11 @@ export function useHotkeys(map, { enabled = true, allowInInputs = [] } = {}) {
       const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable;
       const isFn = /^F\d{1,2}$/.test(e.key) || combo.startsWith('ctrl+') || combo.startsWith('alt+') || e.key === 'Escape';
       if (typing && !isFn && !allowInInputs.includes(combo)) return;
+      // a handler returning false declines the key: the browser default (F1 help, F5 reload…)
+      // stays blocked, but the key still reaches other listeners such as an open popup
       e.preventDefault();
+      if (fn(e) === false) return;
       e.stopPropagation();
-      fn(e);
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);

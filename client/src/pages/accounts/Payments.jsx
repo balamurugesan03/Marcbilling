@@ -1,15 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { CreditCard, ArrowDownLeft, ArrowUpRight } from 'lucide-react';
 import { post, errMsg } from '../../lib/api';
 import { useDebounce } from '../../hooks';
 import { PageHeader, DataTable, SearchBox, DateRange, defaultRange, AsyncSelect, fetchCustomers, fetchSuppliers } from '../../components/common';
-import { Modal } from '../../components/ui';
+import { Modal, Kbd } from '../../components/ui';
 import { inr, fdatetime, PAYMENT_LABELS, titleCase } from '../../lib/format';
 
-function PartyPayment({ kind, onClose, onDone }) {
+function PartyPayment({ kind, mode, onClose, onDone }) {
   const [party, setParty] = useState(null);
-  const [f, setF] = useState({ amount: '', mode: kind === 'customer' ? 'cash' : 'bank', reference: '', notes: '' });
+  const [f, setF] = useState({ amount: '', mode: mode || (kind === 'customer' ? 'cash' : 'bank'), reference: '', notes: '' });
   const due = kind === 'customer' ? party?.raw?.outstanding : party?.raw?.balance;
   const submit = async () => {
     if (!party) return toast.error(`Select ${kind}`);
@@ -42,13 +43,16 @@ export default function Payments() {
   const [range, setRange] = useState(defaultRange());
   const [type, setType] = useState('');
   const [mode, setMode] = useState('');
-  const [modal, setModal] = useState(null);
+  const [modal, setModal] = useState(null); // { kind: 'customer' | 'supplier', mode? }
+  // F9 (cash payment) / F10 (cash receipt) from any page open the matching form
+  const { state } = useLocation();
+  useEffect(() => { if (state?.fresh && state.open) setModal({ kind: state.open, mode: state.mode }); }, [state?.fresh]);
   const [reloadKey, setReloadKey] = useState(0);
   const ds = useDebounce(search, 300);
   return (
     <div>
       <PageHeader icon={CreditCard} title="Payments" subtitle="All money in and out: sales receipts, refunds, customer collections and supplier payments"
-        actions={<><button type="button" className="btn-secondary" onClick={() => setModal('customer')}><ArrowDownLeft className="h-4 w-4 text-emerald-600" /> Customer receipt</button><button type="button" className="btn-primary" onClick={() => setModal('supplier')}><ArrowUpRight className="h-4 w-4" /> Supplier payment</button></>} />
+        actions={<><button type="button" className="btn-secondary" onClick={() => setModal({ kind: 'customer' })}><ArrowDownLeft className="h-4 w-4 text-emerald-600" /> Customer receipt <Kbd>F10</Kbd></button><button type="button" className="btn-primary" onClick={() => setModal({ kind: 'supplier' })}><ArrowUpRight className="h-4 w-4" /> Supplier payment <Kbd>F9</Kbd></button></>} />
       <DataTable url="/payments" params={{ search: ds, ...range, type, mode }} reloadKey={reloadKey}
         toolbar={<>
           <SearchBox value={search} onChange={setSearch} className="w-64" placeholder="Payment no, ref, party" />
@@ -67,7 +71,7 @@ export default function Payments() {
           { key: 'userName', label: 'By' },
           { key: 'amount', label: 'Amount', num: true, render: (r) => <b className={r.direction === 'in' ? 'text-emerald-600' : 'text-rose-600'}>{r.direction === 'in' ? '+' : '−'}{inr(r.amount)}</b> },
         ]} />
-      {modal && <PartyPayment kind={modal} onClose={() => setModal(null)} onDone={() => { setModal(null); setReloadKey((k) => k + 1); }} />}
+      {modal && <PartyPayment key={state?.fresh} kind={modal.kind} mode={modal.mode} onClose={() => setModal(null)} onDone={() => { setModal(null); setReloadKey((k) => k + 1); }} />}
     </div>
   );
 }

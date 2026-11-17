@@ -19,8 +19,10 @@ import { Modal, Kbd, Spinner, Empty } from '../../components/ui';
 import { VariantSearchModal } from '../../components/common';
 
 const SHORTCUTS = [
-  ['F2', 'New bill'], ['F3', 'Product search'], ['F4', 'Customer search'], ['F5', 'Hold bill'], ['F10', 'Recall bill'], ['F12 / Enter', 'Payment'],
-  ['F8', 'Print last bill'], ['F9', 'New customer'], ['F6', 'New bill (any page)'], ['F7', 'New sales return (any page)'], ['Del', 'Remove selected item'],
+  ['F1', 'Sales / new bill (any page)'], ['F2', 'Sales return (any page)'], ['F3', 'Direct print last bill'], ['F4', 'Purchase entry (any page)'],
+  ['F5', 'New product (any page)'], ['F6', 'Reports (any page)'], ['F7', 'Sales summary (any page)'], ['F8', 'Purchase summary (any page)'],
+  ['F9', 'Cash payment (any page)'], ['F10', 'Cash receipt (any page)'], ['F11', 'Product search'], ['F12 / Enter', 'Payment'],
+  ['Alt+C', 'Customer search'], ['Alt+N', 'New customer'], ['Alt+H', 'Hold bill'], ['Alt+R', 'Recall bill'], ['Del', 'Remove selected item'],
   ['Q', 'Change quantity'], ['D', 'Item discount'], ['B', 'Bill discount'], ['E', 'Change rate'], ['↑ / ↓', 'Select item'], ['+ / −', 'Qty of selected (empty scan box)'],
   ['3*CODE', 'Scan with quantity'], ['Esc', 'Close popup'],
 ];
@@ -87,13 +89,13 @@ function CustomerModal({ open, onClose, onPick, onNew }) {
     get('/customers/search', { q: dq }).then((r) => { setList(r); setHi(0); }).catch((e) => toast.error(errMsg(e))).finally(() => setLoading(false));
   }, [dq, open]);
   return (
-    <Modal open={open} onClose={onClose} title="Customer Search" size="md" footer={<button type="button" className="btn-secondary" onClick={() => onNew(q)}><UserPlus className="h-4 w-4" /> New customer <Kbd>F9</Kbd></button>}>
+    <Modal open={open} onClose={onClose} title="Customer Search" size="md" footer={<button type="button" className="btn-secondary" onClick={() => onNew(q)}><UserPlus className="h-4 w-4" /> New customer <Kbd>Alt+N</Kbd></button>}>
       <input data-autofocus className="input py-2.5 text-base" placeholder="Mobile number or name" value={q} onChange={(e) => setQ(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown') { e.preventDefault(); setHi((h) => Math.min(h + 1, list.length - 1)); }
           if (e.key === 'ArrowUp') { e.preventDefault(); setHi((h) => Math.max(h - 1, 0)); }
           if (e.key === 'Enter') { e.preventDefault(); if (list[hi]) onPick(list[hi]); else if (q) onNew(q); }
-          if (e.key === 'F9') { e.preventDefault(); e.stopPropagation(); onNew(q); }
+          if (e.altKey && e.key.toLowerCase() === 'n') { e.preventDefault(); e.stopPropagation(); onNew(q); }
         }} />
       <div className="mt-3 max-h-80 overflow-auto">
         {loading && <div className="p-4"><Spinner /></div>}
@@ -341,8 +343,8 @@ function SuccessModal({ data, onClose, onPrint }) {
   useEffect(() => {
     if (!data) return undefined;
     const onKey = (e) => {
-      if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); onClose(); }
-      if (e.key === 'F8') { e.preventDefault(); onPrint('thermal'); }
+      if (e.key === 'Enter' || e.key === 'F1') { e.preventDefault(); onClose(); }
+      if (e.key === 'F3') { e.preventDefault(); onPrint('thermal'); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -359,7 +361,7 @@ function SuccessModal({ data, onClose, onPrint }) {
         {sale.changeReturned > 0 && <div className="mt-2 rounded-lg bg-emerald-50 px-4 py-2 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">Return change <b className="text-xl">{inr(sale.changeReturned)}</b></div>}
         {sale.loyaltyEarned > 0 && <div className="mt-2 text-xs text-ink-500">+{sale.loyaltyEarned} loyalty points earned</div>}
         <div className="mt-5 grid w-full grid-cols-2 gap-2">
-          <button type="button" className="btn-secondary" onClick={() => onPrint('thermal')}><Printer className="h-4 w-4" /> Receipt <Kbd>F8</Kbd></button>
+          <button type="button" className="btn-secondary" onClick={() => onPrint('thermal')}><Printer className="h-4 w-4" /> Receipt <Kbd>F3</Kbd></button>
           <button type="button" className="btn-secondary" onClick={() => onPrint('a4')}><Printer className="h-4 w-4" /> A4 Invoice</button>
           <button type="button" className="btn-primary col-span-2" data-autofocus onClick={onClose}><FilePlus2 className="h-4 w-4" /> New bill <Kbd>Enter</Kbd></button>
         </div>
@@ -435,14 +437,14 @@ export default function POS() {
   useScanner((c) => { if (!modal && !notFound && !success) scan(c); }, { enabled: !modal && !notFound && !success });
 
   const newBill = async () => {
-    if (items.length && !(await confirm({ title: 'Start a new bill?', message: 'The current bill will be cleared. Hold it (F5) if you need it later.', confirmText: 'Clear bill', danger: true }))) return focusScan();
+    if (items.length && !(await confirm({ title: 'Start a new bill?', message: 'The current bill will be cleared. Hold it (Alt+H) if you need it later.', confirmText: 'Clear bill', danger: true }))) return focusScan();
     pos.clear();
     setCode('');
     focusScan();
     return null;
   };
 
-  // F6 (from any page) starts a new bill; newBill still asks before clearing a non-empty cart
+  // F1 (from any page) starts a new bill; newBill still asks before clearing a non-empty cart
   const fresh = useLocation().state?.fresh;
   useEffect(() => { if (fresh) newBill(); }, [fresh]);
 
@@ -533,14 +535,14 @@ export default function POS() {
   // single-key shortcuts (no Ctrl needed); in the scan box they only fire while it is empty
   const letterKeys = { q: editQty, d: editDisc, b: editBillDisc, e: editRate };
   useHotkeys({
-    F2: newBill,
-    F3: () => { setSearchInit(code); setModal('search'); },
-    F4: () => setModal('customer'),
-    F5: hold,
-    F10: () => setModal('recall'),
+    // F1 / F2 / F4–F10 are app-wide (see Layout)
+    F3: () => printLast(),
+    F11: () => { setSearchInit(code); setModal('search'); },
+    'alt+c': () => setModal('customer'),
+    'alt+h': hold,
+    'alt+r': () => setModal('recall'),
+    'alt+n': () => { setNewCustInit(''); setModal('newCustomer'); },
     F12: openPay,
-    F8: () => printLast(),
-    F9: () => { setNewCustInit(''); setModal('newCustomer'); },
     ...letterKeys,
     'ctrl+q': editQty,
     'ctrl+d': editDisc,
@@ -588,7 +590,7 @@ export default function POS() {
                 }} />
               {scanBusy && <Spinner className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2" />}
             </div>
-            <button type="button" className="btn-secondary py-3" onClick={() => { setSearchInit(code); setModal('search'); }}><Search className="h-4 w-4" /> Search <Kbd>F3</Kbd></button>
+            <button type="button" className="btn-secondary py-3" onClick={() => { setSearchInit(code); setModal('search'); }}><Search className="h-4 w-4" /> Search <Kbd>F11</Kbd></button>
           </div>
 
           <div className="card flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -597,7 +599,7 @@ export default function POS() {
                 <div className="flex h-full flex-col items-center justify-center gap-2 py-16 text-center text-ink-400">
                   <ScanBarcode className="h-12 w-12 opacity-40" />
                   <div className="text-sm font-medium">Scan a product barcode to start billing</div>
-                  <div className="text-xs">or press <Kbd>F3</Kbd> to search · <Kbd>F10</Kbd> to recall a held bill</div>
+                  <div className="text-xs">or press <Kbd>F11</Kbd> to search · <Kbd>Alt+R</Kbd> to recall a held bill</div>
                 </div>
               ) : (
                 <table className="tbl">
@@ -658,8 +660,8 @@ export default function POS() {
               </div>
             ) : (
               <div className="flex gap-2">
-                <button type="button" className="btn-secondary flex-1" onClick={() => setModal('customer')}><User className="h-4 w-4" /> Customer <Kbd>F4</Kbd></button>
-                <button type="button" className="btn-secondary" onClick={() => { setNewCustInit(''); setModal('newCustomer'); }}><UserPlus className="h-4 w-4" /> <Kbd>F9</Kbd></button>
+                <button type="button" className="btn-secondary flex-1" onClick={() => setModal('customer')}><User className="h-4 w-4" /> Customer <Kbd>Alt+C</Kbd></button>
+                <button type="button" className="btn-secondary" onClick={() => { setNewCustInit(''); setModal('newCustomer'); }}><UserPlus className="h-4 w-4" /> <Kbd>Alt+N</Kbd></button>
               </div>
             )}
           </div>
@@ -684,10 +686,10 @@ export default function POS() {
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2">
               <button type="button" className="btn-secondary" onClick={editBillDisc}><BadgePercent className="h-4 w-4" /> Bill disc <Kbd>B</Kbd></button>
-              <button type="button" className="btn-secondary" onClick={hold}><PauseCircle className="h-4 w-4" /> Hold <Kbd>F5</Kbd></button>
-              <button type="button" className="btn-secondary" onClick={() => setModal('recall')}><History className="h-4 w-4" /> Recall <Kbd>F10</Kbd></button>
-              <button type="button" className="btn-secondary" onClick={() => printLast()}><Printer className="h-4 w-4" /> Last <Kbd>F8</Kbd></button>
-              <button type="button" className="btn-secondary col-span-2" onClick={newBill}><FilePlus2 className="h-4 w-4" /> New bill <Kbd>F2</Kbd></button>
+              <button type="button" className="btn-secondary" onClick={hold}><PauseCircle className="h-4 w-4" /> Hold <Kbd>Alt+H</Kbd></button>
+              <button type="button" className="btn-secondary" onClick={() => setModal('recall')}><History className="h-4 w-4" /> Recall <Kbd>Alt+R</Kbd></button>
+              <button type="button" className="btn-secondary" onClick={() => printLast()}><Printer className="h-4 w-4" /> Print <Kbd>F3</Kbd></button>
+              <button type="button" className="btn-secondary col-span-2" onClick={newBill}><FilePlus2 className="h-4 w-4" /> New bill <Kbd>F1</Kbd></button>
             </div>
             <div className="flex-1" />
             <button type="button" className="btn-primary btn-lg mt-3 w-full py-4 text-lg" onClick={openPay} disabled={!items.length}><CreditCard className="h-5 w-5" /> Pay {inr(totals.grandTotal)} <Kbd>F12</Kbd></button>
