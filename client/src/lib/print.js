@@ -1,4 +1,5 @@
 import JsBarcode from 'jsbarcode';
+import QRCode from 'qrcode';
 import { amountInWords, fdatetime, PAYMENT_LABELS } from './format';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -334,39 +335,53 @@ function marcLabelsHtml(labels, { storeName = '', fields: f, cols = 2 }) {
 export const isAccessory = (l) => /accessor/i.test(String(l?.categoryName || ''));
 
 /*
- * Accessories label: 75 x 24 mm, 1 across, continuous synthetic roll (no gap), direct thermal.
- * Header: brand / company + MRP (incl. of all taxes); product name, description, batch;
- * then a full-width Code128 barcode of the item code (SKU) with "Item Code: SKU" under it.
- * The POS finds a product by its SKU too, so these labels scan at the counter.
+ * Accessories label (HERA Collection style): continuous synthetic roll 75 x 24 mm (no gap), direct thermal, black on white.
+ * 2 across = two 37.5 x 24 mm labels side by side; 1 across = one 75 x 24 mm label.
+ *   top-left: brand (the branch's company name)
+ *   left: square QR code of the product's barcode (the POS finds a product by it), with its quiet zone
+ *   right of the QR: product code and product name
+ *   bottom: "MRP : 1500.00" and "Net Rs: 1000.00"
+ * The QR is drawn as whole squares (crisp edges) and never stretched, so it scans on 203 and 300 dpi printers.
  */
-function accLabelsHtml(labels, { storeName = '', fields: f, batch = '', cols = 1 }) {
-  // 2 across: two 37.5 mm labels side by side on the same 75 mm roll, everything scaled down to fit
+function qrSvg(text, sizeMm) {
+  const qr = QRCode.create(String(text || ' '), { errorCorrectionLevel: 'M' });
+  const n = qr.modules.size;
+  const q = 2; // quiet zone in modules (plus the white label around it)
+  const total = n + q * 2;
+  let d = '';
+  for (let r = 0; r < n; r += 1) {
+    for (let c = 0; c < n; c += 1) if (qr.modules.get(r, c)) d += `M${c + q} ${r + q}h1v1h-1z`;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${total}" width="${sizeMm}mm" height="${sizeMm}mm" shape-rendering="crispEdges"><rect width="${total}" height="${total}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+}
+
+function accLabelsHtml(labels, { storeName = '', fields: f, cols = 1 }) {
   const two = cols === 2;
   const lw = two ? 37.5 : 75;
-  const k = two ? 0.62 : 1; // font scale
+  const k = two ? 1 : 1.1; // 1 across: a little bigger text (height stays 24 mm)
   const fs = (mm) => `${(mm * k).toFixed(2)}mm`;
+  const qrMm = two ? 12 : 11.6;
   const flat = labels.flatMap((l) => Array.from({ length: l.qty }, () => l));
   const money = (n) => (Number(n) || 0).toFixed(2);
+  const infoW = lw - (two ? 3.2 : 5) - qrMm + 0.6 - (two ? 1.2 : 2); // room right of the QR
   const label = (l) => {
-    const code = String(l.sku || l.barcode || '');
-    const bc = marcBarcode(code, two ? { maxW: 34, h: 8.6 } : { maxW: 69, h: 8.2 }); // quiet zone each side
+    const code = String(l.barcode || l.sku || '');
+    const codeFs = Math.min(2.7 * k, infoW / (code.length * 0.8)).toFixed(2); // long codes shrink to fit, never cut
     const brand = f.showStoreName ? (storeName || l.brandName || '') : '';
-    const variant = f.showSizeColor ? [l.color, l.size].filter(Boolean).join(' / ') : '';
-    const name = f.showProductName ? [l.brandName && l.brandName !== brand ? l.brandName : '', l.productName].filter(Boolean).join(' ') : '';
+    const size = f.showSizeColor ? [l.color, l.size].filter(Boolean).join(' / ') : '';
     return `<div class="lbl">
-      <div class="hd">
-        <div class="l">
-          ${brand ? `<div class="brand">${esc(brand)}</div>` : ''}
-          ${name || variant ? `<div class="name"><span class="nm">${esc(name)}</span>${variant ? `<b class="var">${esc(variant)}</b>` : ''}</div>` : ''}
-          <div class="desc">${esc(l.description || '')}</div>
-        </div>
-        <div class="r">
-          ${f.showMrp ? `<div class="mrp">MRP &#8377;${money(l.mrp)}</div><div class="tax">(Incl. of all taxes)</div>` : ''}
-          ${batch ? `<div class="batch">Batch: <b>${esc(batch)}</b></div>` : ''}
+      ${brand ? `<div class="brand">${esc(brand)}</div>` : ''}
+      <div class="mid">
+        <div class="qr">${qrSvg(code, qrMm)}</div>
+        <div class="info">
+          ${f.showSku ? `<div class="code" style="font-size:${codeFs}mm">${esc(code)}</div>` : ''}
+          ${f.showProductName ? `<div class="name">${esc(l.productName || '')}${size ? ` <b>${esc(size)}</b>` : ''}</div>` : ''}
         </div>
       </div>
-      <div class="bc">${bc.html}</div>
-      <div class="code">Item Code: <b>${esc(code)}</b></div>
+      <div class="price">
+        ${f.showMrp ? `<div class="mrp">MRP : ${money(l.mrp)}</div>` : ''}
+        ${f.showSellingPrice ? `<div class="net">Net Rs: ${money(l.sellingPrice)}</div>` : ''}
+      </div>
     </div>`;
   };
   const rows = [];
@@ -374,25 +389,21 @@ function accLabelsHtml(labels, { storeName = '', fields: f, batch = '', cols = 1
   return `<!doctype html><html><head><meta charset="utf-8"><title>Labels</title><style>
     @page { size: 75mm 24mm; margin: 0; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { font-family: Arial, Helvetica, sans-serif; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    html, body { font-family: Arial, Helvetica, sans-serif; color: #000; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .row { display: flex; width: 75mm; height: 24mm; overflow: hidden; break-after: page; page-break-after: always; }
     .row:last-child { break-after: auto; page-break-after: auto; }
-    .lbl { width: ${lw}mm; height: 24mm; padding: ${two ? '1mm 1.5mm 0' : '1mm 2mm 0'}; overflow: hidden; flex: none; }
-    .hd { display: flex; justify-content: space-between; gap: ${two ? 1 : 2}mm; height: ${two ? 9.4 : 9.6}mm; border-bottom: .3mm solid #000; padding-bottom: .3mm; }
-    .l { min-width: 0; flex: 1; } .r { flex: none; text-align: right; }
-    .l > div, .r > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.12; }
-    .brand { font: 900 ${fs(3.4)}/1.1 'Arial Black', Arial, sans-serif; letter-spacing: .15mm; text-transform: uppercase; }
-    .l > .name { display: flex; align-items: baseline; font-size: ${fs(2.7)}; font-weight: 700; }
-    .name .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-    .var { flex: none; font: 900 ${fs(2.7)}/1.12 'Arial Black', Arial, sans-serif; margin-left: .8mm; }
-    .desc { font-size: ${fs(2.1)}; font-weight: 700; }
-    .mrp { font: 900 ${fs(3.9)}/1.1 'Arial Black', Arial, sans-serif; }
-    .tax { font-size: ${fs(1.9)}; font-weight: 700; }
-    .batch { font-size: ${fs(2.2)}; font-weight: 700; margin-top: .3mm; }
-    .bc { display: flex; justify-content: center; margin-top: ${two ? 1 : 1.1}mm; }
-    .bc svg { display: block; }
-    .code { text-align: center; font: 700 ${fs(2.6)}/1 Arial, sans-serif; letter-spacing: .1mm; margin-top: .5mm; white-space: nowrap; overflow: hidden; }
-    .code b { font-weight: 900; }
+    .lbl { position: relative; width: ${lw}mm; height: 24mm; padding: 1mm ${two ? 1.6 : 2.5}mm 0; overflow: hidden; flex: none; display: flex; flex-direction: column; }
+    .brand { font: 900 ${fs(3)}/1 Arial, Helvetica, sans-serif; letter-spacing: .1mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; height: ${fs(3.2)}; }
+    .mid { display: flex; align-items: center; gap: ${two ? 1.2 : 2}mm; margin-top: .3mm; height: ${qrMm}mm; }
+    .qr { flex: none; width: ${qrMm}mm; height: ${qrMm}mm; margin-left: -.6mm; }
+    .qr svg { display: block; }
+    .info { min-width: 0; flex: 1; }
+    .code { font: 900 ${fs(2.7)}/1.15 Arial, Helvetica, sans-serif; letter-spacing: .1mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .name { margin-top: .6mm; font: 700 ${fs(2.5)}/1.15 Arial, Helvetica, sans-serif; text-transform: uppercase; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
+    .name b { font-weight: 900; }
+    .price { margin-top: .4mm; }
+    .mrp { font: 700 ${fs(2.7)}/1.05 Arial, Helvetica, sans-serif; white-space: nowrap; }
+    .net { font: 900 ${fs(3.1)}/1.05 Arial, Helvetica, sans-serif; white-space: nowrap; }
   </style></head><body>${rows.map((r) => `<div class="row">${r.map(label).join('')}</div>`).join('')}</body></html>`;
 }
 
@@ -400,7 +411,7 @@ export function labelsHtml(labels, { size = '50x25', columns = 1, storeName = ''
   const s = LABEL_SIZES[size] || LABEL_SIZES['50x25'];
   if (s.design) {
     const f = { showStoreName: true, showProductName: true, showSku: true, showSizeColor: true, showMrp: true, showSellingPrice: true, ...fields };
-    return s.design === 'acc' ? accLabelsHtml(labels, { storeName, fields: f, batch, cols: s.cols || 1 }) : marcLabelsHtml(labels, { storeName, fields: f, cols: s.cols || 2 });
+    return s.design === 'acc' ? accLabelsHtml(labels, { storeName, fields: f, cols: s.cols || 1 }) : marcLabelsHtml(labels, { storeName, fields: f, cols: s.cols || 2 });
   }
   const small = s.h < 24;
   const f = { showStoreName: true, showProductName: true, showSku: true, showSizeColor: true, showMrp: true, showSellingPrice: true, ...fields };

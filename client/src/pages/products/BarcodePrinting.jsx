@@ -87,9 +87,8 @@ export default function BarcodePrinting() {
           <label className="block"><span className="label">Barcode format</span><select className="input" value={format} onChange={(e) => setFormat(e.target.value)}><option value="">As stored (per variant)</option><option value="CODE128">Code128 (force)</option></select></label>
           {hasAcc && (
             <div className="space-y-2 rounded-lg border border-ink-200 p-3 dark:border-ink-700">
-              <div className="text-xs text-ink-500">Accessories print on the <b>75 x 24 mm</b> roll: barcode = item code (SKU). Driver paper 75 x 24 mm, media type <b>Continuous</b> (no gap).</div>
+              <div className="text-xs text-ink-500">Accessories print the <b>QR label</b> (brand, QR code, product code, name, MRP, Net Rs) on the <b>75 x 24 mm</b> roll. QR = product barcode, scans at the POS. Driver paper 75 x 24 mm, media type <b>Continuous</b> (no gap).</div>
               {!isAccSize && <label className="block"><span className="label">Accessories label</span><select className="input" value={ACC} onChange={(e) => setAcc(e.target.value)}><option value="ACC-2up">2 across (small font)</option><option value="ACC-75x24">1 across (big font)</option></select></label>}
-              <label className="block"><span className="label">Batch number (optional)</span><input className="input" value={batch} maxLength={20} onChange={(e) => setBatch(e.target.value)} placeholder="e.g. B2611" /></label>
             </div>
           )}
           <div className="space-y-2">
