@@ -76,12 +76,17 @@ const dimTotals = ['qty', 'returnedQty', 'netQty', 'bills', 'discount', 'taxable
 
 /** Sales grouped by a date key, net of returns. */
 async function salesByPeriod(ctx, keyFn) {
+  // amount a bill took in one payment mode (refunds are minus)
+  const paid = (modes) => ({ $sum: { $reduce: { input: { $filter: { input: '$payments', cond: { $in: ['$this.mode', modes] } } }, initialValue: 0, in: { $add: ['$value', '$this.amount'] } } } });
   const sales = await Sale.aggregate([
     { $match: saleMatch(ctx) },
+    { $sort: { createdAt: 1 } },
     {
       $group: {
         _id: keyFn('$createdAt'), bills: { $sum: 1 }, qty: { $sum: '$totals.totalQty' }, gross: { $sum: '$totals.subtotal' },
         discount: { $sum: '$totals.discount' }, taxable: { $sum: '$totals.taxable' }, tax: { $sum: '$totals.totalTax' }, total: { $sum: '$totals.grandTotal' },
+        firstBill: { $first: '$invoiceNumber' }, lastBill: { $last: '$invoiceNumber' },
+        cash: paid(['cash']), upi: paid(['upi']), card: paid(['card']), other: paid(['bank', 'credit', 'store_credit', 'loyalty', 'exchange']),
       },
     },
   ]);
@@ -95,11 +100,13 @@ async function salesByPeriod(ctx, keyFn) {
     const s = sales.find((x) => x._id === k) || {};
     const r = rm.get(k) || {};
     return {
-      period: k, bills: s.bills || 0, qty: s.qty || 0, gross: round2(s.gross || 0), discount: round2(s.discount || 0), taxable: round2(s.taxable || 0),
+      period: k, billNos: s.firstBill ? (s.firstBill === s.lastBill ? s.firstBill : `${s.firstBill} – ${s.lastBill}`) : '',
+      cash: round2(s.cash || 0), upi: round2(s.upi || 0), card: round2(s.card || 0), other: round2(s.other || 0),
+      bills: s.bills || 0, qty: s.qty || 0, gross: round2(s.gross || 0), discount: round2(s.discount || 0), taxable: round2(s.taxable || 0),
       tax: round2(s.tax || 0), total: round2(s.total || 0), returns: round2(r.returns || 0), net: round2((s.total || 0) - (r.returns || 0)),
     };
   });
-  return paginateRows(rows, ctx, ['bills', 'qty', 'gross', 'discount', 'taxable', 'tax', 'total', 'returns', 'net']);
+  return paginateRows(rows, ctx, ['bills', 'qty', 'gross', 'discount', 'taxable', 'tax', 'total', 'returns', 'net', 'cash', 'upi', 'card', 'other']);
 }
 
 function paginateRows(rows, ctx, totalFields) {
@@ -435,7 +442,12 @@ const REPORTS = {
   },
 
   /* ---------------- FINANCIAL ---------------- */
-  fin_sales: { group: 'Financial', financial: true, title: 'Sales Summary', columns: periodCols('Date'), run: (ctx) => salesByPeriod(ctx, dayKey) },
+  fin_sales: {
+    group: 'Financial', financial: true, title: 'Sales Summary',
+    // each day: its bill numbers (first – last) and how it was paid (Cash / GPay / Card / Others)
+    columns: [C('period', 'Date'), C('billNos', 'Bill No'), ...periodCols('Date').slice(1, 8), money('cash', 'Cash'), money('upi', 'GPay'), money('card', 'Card'), money('other', 'Others'), ...periodCols('Date').slice(8)],
+    run: (ctx) => salesByPeriod(ctx, dayKey),
+  },
   fin_purchase: {
     group: 'Financial', financial: true, title: 'Purchase Summary',
     columns: [C('period', 'Date'), num('invoices', 'Invoices'), money('taxable', 'Taxable'), money('tax', 'Input GST'), money('total', 'Total')],
