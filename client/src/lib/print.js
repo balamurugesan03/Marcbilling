@@ -248,7 +248,8 @@ export function a4InvoiceHtml(inv, { duplicate = false } = {}) {
 export const LABEL_SIZES = {
   'MARC-1up': { w: 38, h: 25, label: 'MARC design - 38 x 25 mm (1 across)', design: 'marc', cols: 1 },
   'MARC-2up': { w: 38.5, h: 25, label: 'MARC design - 2 across (80 x 25 mm roll)', design: 'marc', cols: 2 },
-  'ACC-75x24': { w: 75, h: 24, label: 'Accessories - 75 x 24 mm (1 across, no gap)', design: 'acc' },
+  'ACC-2up': { w: 37.5, h: 24, label: 'Accessories - 2 across on 75 x 24 mm (no gap)', design: 'acc', cols: 2 },
+  'ACC-75x24': { w: 75, h: 24, label: 'Accessories - 75 x 24 mm (1 across, no gap)', design: 'acc', cols: 1 },
   '50x25':{ w: 50, h: 25, label: '50 x 25 mm (roll)' },
   '38x25': { w: 38, h: 25, label: '38 x 25 mm (roll)' },
   '40x30': { w: 40, h: 30, label: '40 x 30 mm (roll)' },
@@ -334,12 +335,17 @@ export const isAccessory = (l) => /accessor/i.test(String(l?.categoryName || '')
  * then a full-width Code128 barcode of the item code (SKU) with "Item Code: SKU" under it.
  * The POS finds a product by its SKU too, so these labels scan at the counter.
  */
-function accLabelsHtml(labels, { storeName = '', fields: f, batch = '' }) {
+function accLabelsHtml(labels, { storeName = '', fields: f, batch = '', cols = 1 }) {
+  // 2 across: two 37.5 mm labels side by side on the same 75 mm roll, everything scaled down to fit
+  const two = cols === 2;
+  const lw = two ? 37.5 : 75;
+  const k = two ? 0.62 : 1; // font scale
+  const fs = (mm) => `${(mm * k).toFixed(2)}mm`;
   const flat = labels.flatMap((l) => Array.from({ length: l.qty }, () => l));
   const money = (n) => (Number(n) || 0).toFixed(2);
   const label = (l) => {
     const code = String(l.sku || l.barcode || '');
-    const bc = marcBarcode(code, { maxW: 69, h: 8.2 }); // 3 mm quiet zone each side
+    const bc = marcBarcode(code, two ? { maxW: 34, h: 8.6 } : { maxW: 69, h: 8.2 }); // quiet zone each side
     const brand = f.showStoreName ? (storeName || l.brandName || '') : '';
     const variant = f.showSizeColor ? [l.color, l.size].filter(Boolean).join(' / ') : '';
     const name = f.showProductName ? [l.brandName && l.brandName !== brand ? l.brandName : '', l.productName].filter(Boolean).join(' ') : '';
@@ -359,36 +365,38 @@ function accLabelsHtml(labels, { storeName = '', fields: f, batch = '' }) {
       <div class="code">Item Code: <b>${esc(code)}</b></div>
     </div>`;
   };
+  const rows = [];
+  for (let i = 0; i < flat.length; i += cols) rows.push(flat.slice(i, i + cols));
   return `<!doctype html><html><head><meta charset="utf-8"><title>Labels</title><style>
     @page { size: 75mm 24mm; margin: 0; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { font-family: Arial, Helvetica, sans-serif; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .lbl { width: 75mm; height: 24mm; padding: 1mm 2mm 0; overflow: hidden; break-after: page; page-break-after: always; }
-    .lbl:last-child { break-after: auto; page-break-after: auto; }
-    .hd { display: flex; justify-content: space-between; gap: 2mm; height: 9.6mm; border-bottom: .3mm solid #000; }
+    .row { display: flex; width: 75mm; height: 24mm; overflow: hidden; break-after: page; page-break-after: always; }
+    .row:last-child { break-after: auto; page-break-after: auto; }
+    .lbl { width: ${lw}mm; height: 24mm; padding: ${two ? '1mm 1.5mm 0' : '1mm 2mm 0'}; overflow: hidden; flex: none; }
+    .hd { display: flex; justify-content: space-between; gap: ${two ? 1 : 2}mm; height: ${two ? 9.4 : 9.6}mm; border-bottom: .3mm solid #000; padding-bottom: .3mm; }
     .l { min-width: 0; flex: 1; } .r { flex: none; text-align: right; }
     .l > div, .r > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.12; }
-    .brand { font: 900 3.4mm/1.1 'Arial Black', Arial, sans-serif; letter-spacing: .2mm; text-transform: uppercase; }
-    .l > .name { display: flex; align-items: baseline; font-size: 2.7mm; font-weight: 700; }
+    .brand { font: 900 ${fs(3.4)}/1.1 'Arial Black', Arial, sans-serif; letter-spacing: .15mm; text-transform: uppercase; }
+    .l > .name { display: flex; align-items: baseline; font-size: ${fs(2.7)}; font-weight: 700; }
     .name .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-    .hd { padding-bottom: .3mm; }
-    .var { flex: none; font: 900 2.7mm/1.12 'Arial Black', Arial, sans-serif; margin-left: 1mm; }
-    .desc { font-size: 2.1mm; font-weight: 700; }
-    .mrp { font: 900 3.9mm/1.1 'Arial Black', Arial, sans-serif; }
-    .tax { font-size: 1.9mm; font-weight: 700; }
-    .batch { font-size: 2.2mm; font-weight: 700; margin-top: .3mm; }
-    .bc { display: flex; justify-content: center; margin-top: 1.1mm; }
+    .var { flex: none; font: 900 ${fs(2.7)}/1.12 'Arial Black', Arial, sans-serif; margin-left: .8mm; }
+    .desc { font-size: ${fs(2.1)}; font-weight: 700; }
+    .mrp { font: 900 ${fs(3.9)}/1.1 'Arial Black', Arial, sans-serif; }
+    .tax { font-size: ${fs(1.9)}; font-weight: 700; }
+    .batch { font-size: ${fs(2.2)}; font-weight: 700; margin-top: .3mm; }
+    .bc { display: flex; justify-content: center; margin-top: ${two ? 1 : 1.1}mm; }
     .bc svg { display: block; }
-    .code { text-align: center; font: 700 2.6mm/1 Arial, sans-serif; letter-spacing: .15mm; margin-top: .5mm; white-space: nowrap; }
+    .code { text-align: center; font: 700 ${fs(2.6)}/1 Arial, sans-serif; letter-spacing: .1mm; margin-top: .5mm; white-space: nowrap; overflow: hidden; }
     .code b { font-weight: 900; }
-  </style></head><body>${flat.map(label).join('')}</body></html>`;
+  </style></head><body>${rows.map((r) => `<div class="row">${r.map(label).join('')}</div>`).join('')}</body></html>`;
 }
 
 export function labelsHtml(labels, { size = '50x25', columns = 1, storeName = '', fields = {}, format, batch = '' } = {}) {
   const s = LABEL_SIZES[size] || LABEL_SIZES['50x25'];
   if (s.design) {
     const f = { showStoreName: true, showProductName: true, showSku: true, showSizeColor: true, showMrp: true, showSellingPrice: true, ...fields };
-    return s.design === 'acc' ? accLabelsHtml(labels, { storeName, fields: f, batch }) : marcLabelsHtml(labels, { storeName, fields: f, cols: s.cols || 2 });
+    return s.design === 'acc' ? accLabelsHtml(labels, { storeName, fields: f, batch, cols: s.cols || 1 }) : marcLabelsHtml(labels, { storeName, fields: f, cols: s.cols || 2 });
   }
   const small = s.h < 24;
   const f = { showStoreName: true, showProductName: true, showSku: true, showSizeColor: true, showMrp: true, showSellingPrice: true, ...fields };
