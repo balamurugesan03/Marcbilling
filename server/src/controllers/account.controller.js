@@ -47,6 +47,7 @@ module.exports = {
   reports: {
     catalogue: asyncHandler(async (req, res) => ok(res, report.catalogue(req))),
     run: asyncHandler(async (req, res) => ok(res, await report.run(req, req.params.key))),
+    productDetail: asyncHandler(async (req, res) => ok(res, await report.productDetail(req, req.params.variantId))),
   },
   dashboard: asyncHandler(async (req, res) => ok(res, await dashboard.summary(req))),
   settings: {

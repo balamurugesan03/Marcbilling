@@ -7,7 +7,7 @@ import { get, errMsg } from '../../lib/api';
 import { useAuth } from '../../store/auth';
 import { useDebounce } from '../../hooks';
 import { PageHeader, SearchBox, DateRange, defaultRange } from '../../components/common';
-import { Loading, Empty, Pagination } from '../../components/ui';
+import { Loading, Empty, Pagination, Modal } from '../../components/ui';
 import { inr, num, fdate, PAYMENT_LABELS } from '../../lib/format';
 import { exportExcel, exportPdf } from '../../lib/export';
 import { printHtml } from '../../lib/print';
@@ -20,6 +20,113 @@ const fmt = (c, v) => {
   if (c.type === 'date') return fdate(v);
   return String(v);
 };
+/** Sales summary drill-down: everything about one product in the report's period and branch. */
+function ProductDetail({ variantId, params, onClose }) {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    if (!variantId) return;
+    setD(null);
+    get(`/reports/product-detail/${variantId}`, { from: params.from, to: params.to, branchId: params.branchId }).then(setD).catch((e) => { toast.error(errMsg(e)); onClose(); });
+  }, [variantId]);
+  const v = d?.variant;
+  const Stat = ({ label, value, tone }) => (
+    <div className="rounded-lg border border-ink-200 px-3 py-2 dark:border-ink-700">
+      <div className="text-[11px] uppercase tracking-wide text-ink-500">{label}</div>
+      <div className={clsx('text-lg font-bold tabular-nums', tone)}>{value}</div>
+    </div>
+  );
+  return (
+    <Modal open={Boolean(variantId)} onClose={onClose} size="full" title={v ? `${v.productName}${v.size ? ` · ${v.size}` : ''}${v.color ? ` · ${v.color}` : ''}` : 'Product details'}>
+      {!d ? <Loading /> : (
+        <div className="space-y-4">
+          <div className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2 lg:grid-cols-4">
+            <div><span className="text-ink-500">SKU:</span> <b className="font-mono">{v.sku}</b></div>
+            <div><span className="text-ink-500">Barcode:</span> <b className="font-mono">{v.barcode}</b></div>
+            <div><span className="text-ink-500">Product code:</span> {v.productCode || '-'}</div>
+            <div><span className="text-ink-500">Category / Brand:</span> {[v.categoryName, v.brandName].filter(Boolean).join(' / ') || '-'}</div>
+            <div><span className="text-ink-500">MRP:</span> {inr(v.mrp)}</div>
+            <div><span className="text-ink-500">Selling price:</span> {inr(v.sellingPrice)}</div>
+            <div><span className="text-ink-500">Purchase price:</span> {inr(v.purchasePrice)}</div>
+            <div><span className="text-ink-500">GST:</span> {v.gstRate}%{v.hsnCode ? ` · HSN ${v.hsnCode}` : ''}{v.status !== 'active' ? ' · INACTIVE' : ''}</div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
+            <Stat label="Stock left" value={num(d.totalStock)} tone={d.totalStock <= 0 ? 'text-rose-600' : 'text-emerald-600'} />
+            <Stat label="Bills" value={num(d.summary.bills)} />
+            <Stat label="Qty sold" value={num(d.summary.qty)} />
+            <Stat label="Returned" value={num(d.summary.returned)} />
+            <Stat label="Net qty" value={num(d.summary.netQty)} />
+            <Stat label="Sales" value={inr(d.summary.sales)} />
+            <Stat label="Discount" value={inr(d.summary.discount)} />
+            <Stat label="Profit" value={inr(d.summary.profit)} tone={d.summary.profit < 0 ? 'text-rose-600' : ''} />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div>
+              <div className="section-title mb-1">Payment mode</div>
+              {!d.summary.byMode.length ? <div className="text-sm text-ink-500">No sales in this period</div> : (
+                <div className="flex flex-wrap gap-2">{d.summary.byMode.map((m) => <span key={m.mode} className="badge-brand text-sm">{m.mode}: {inr(m.amount)}</span>)}</div>
+              )}
+            </div>
+            <div>
+              <div className="section-title mb-1">Stock by branch</div>
+              <div className="flex flex-wrap gap-2">{d.stock.length ? d.stock.map((s) => <span key={s.branch} className={clsx('text-sm', s.current > 0 ? 'badge-green' : 'badge-red')}>{s.branch}: {s.current}</span>) : <span className="text-sm text-ink-500">No stock record</span>}</div>
+            </div>
+          </div>
+
+          <div>
+            <div className="section-title mb-1">Sales ({d.sales.length})</div>
+            <div className="table-wrap max-h-80">
+              {!d.sales.length ? <Empty title="Not sold in this period" /> : (
+                <table className="tbl">
+                  <thead><tr><th>Date</th><th>Bill No</th><th>Branch</th><th>Customer</th><th>Cashier</th><th className="num">Qty</th><th className="num">Returned</th><th className="num">Rate</th><th className="num">Discount</th><th className="num">Amount</th><th className="num">Profit</th><th>Bill paid by</th></tr></thead>
+                  <tbody>
+                    {d.sales.map((s, i) => (
+                      <tr key={i} className={clsx(s.qty < 0 && 'text-rose-600')}>
+                        <td className="whitespace-nowrap">{fdate(s.date)}</td>
+                        <td className="font-mono text-xs">{s.invoiceNumber}{s.returnOf && <div className="text-[10px]">return of {s.returnOf}</div>}</td>
+                        <td>{s.branch}</td>
+                        <td>{s.customer}{s.mobile && <div className="text-[11px] text-ink-500">{s.mobile}</div>}</td>
+                        <td>{s.cashier}</td>
+                        <td className="num">{s.qty}</td>
+                        <td className="num">{s.returned || '-'}</td>
+                        <td className="num">{inr(s.rate)}</td>
+                        <td className="num">{s.discount ? inr(s.discount) : '-'}</td>
+                        <td className="num font-semibold">{inr(s.amount)}</td>
+                        <td className={clsx('num', s.profit < 0 && 'text-rose-600')}>{inr(s.profit)}</td>
+                        <td className="whitespace-nowrap text-xs">{s.payment}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <div className="section-title mb-1">Purchases (latest {d.purchases.length})</div>
+            <div className="table-wrap max-h-60">
+              {!d.purchases.length ? <Empty title="No purchases recorded" /> : (
+                <table className="tbl">
+                  <thead><tr><th>Date</th><th>Purchase No</th><th>Supplier bill</th><th>Supplier</th><th>Branch</th><th className="num">Qty</th><th className="num">Returned</th><th className="num">Rate</th><th className="num">MRP</th></tr></thead>
+                  <tbody>
+                    {d.purchases.map((p, i) => (
+                      <tr key={i}>
+                        <td className="whitespace-nowrap">{fdate(p.date)}</td><td className="font-mono text-xs">{p.purchaseNo}</td><td>{p.billNo}</td><td>{p.supplier}</td><td>{p.branch}</td>
+                        <td className="num">{p.qty}</td><td className="num">{p.returned || '-'}</td><td className="num">{inr(p.rate)}</td><td className="num">{inr(p.mrp)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 // 'YYYY-MM' -> first and last day of that month
 const monthRange = (ym) => {
   const [y, m] = ym.split('-').map(Number);
@@ -38,6 +145,7 @@ export default function Reports() {
   const [branch, setBranch] = useState('');
   const [extra, setExtra] = useState({});
   const [page, setPage] = useState(1);
+  const [detail, setDetail] = useState(null); // sales summary: product clicked for its full details
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const ds = useDebounce(search, 400);
@@ -128,7 +236,7 @@ export default function Reports() {
                 <thead><tr>{data.columns.map((c) => <th key={c.key} className={['money', 'number', 'percent'].includes(c.type) ? 'num' : ''}>{c.label}</th>)}</tr></thead>
                 <tbody className={loading ? 'opacity-50' : ''}>
                   {data.rows.map((r, i) => (
-                    <tr key={i} className={clsx(r.bold && 'bg-ink-50 font-bold dark:bg-ink-800/60', r.memo && 'text-ink-500')}>
+                    <tr key={i} onClick={r.variantId ? () => setDetail(r.variantId) : undefined} title={r.variantId ? "Click for full details" : undefined} className={clsx(r.bold && "bg-ink-50 font-bold dark:bg-ink-800/60", r.memo && "text-ink-500", r.variantId && "cursor-pointer hover:bg-brand-50 dark:hover:bg-brand-500/10")}>
                       {data.columns.map((c) => <td key={c.key} className={clsx(['money', 'number', 'percent'].includes(c.type) && 'num', c.type === 'money' && Number(r[c.key]) < 0 && 'text-rose-600')}>{r.isPercent && c.type === 'money' ? `${r[c.key]}%` : fmt(c, r[c.key])}</td>)}
                     </tr>
                   ))}
@@ -140,6 +248,8 @@ export default function Reports() {
             )}
           </div>
           {data && <Pagination page={data.page} pages={data.pages} total={data.total} onPage={setPage} />}
+          {data?.rows?.some((r) => r.variantId) && <div className="px-1 pt-1 text-xs text-ink-500">Click a product for its full details: every bill, payment mode, stock left, purchases.</div>}
+          <ProductDetail variantId={detail} params={params} onClose={() => setDetail(null)} />
         </div>
       </div>
     </div>

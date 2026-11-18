@@ -36,6 +36,7 @@ cash.post('/close', permit('cash.manage'), requireBranch, validate(v.cash.close)
 
 const reports = express.Router();
 reports.get('/', permit('reports.view', 'reports.financial'), c.reports.catalogue);
+reports.get('/product-detail/:variantId', permit('reports.financial'), c.reports.productDetail);
 reports.get('/:key', permit('reports.view', 'reports.financial'), c.reports.run);
 
 const dashboard = express.Router();

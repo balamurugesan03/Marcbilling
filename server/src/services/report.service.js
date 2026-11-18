@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const {
   Sale, SaleItem, SaleReturn, Stock, Purchase, PurchaseItem, PurchaseReturn, Customer, Expense, Payment,
-  StockTransferItem, StockAdjustment, Branch,
+  StockTransferItem, StockAdjustment, Branch, ProductVariant,
 } = require('../models');
 const ApiError = require('../utils/ApiError');
 const { round2, startOfDay, endOfDay, escapeRegex } = require('../utils/common');
@@ -649,7 +649,7 @@ const REPORTS = {
         const p = pm.get(String(g.variantId)) || {};
         const profit = round2(g.taxable - g.cost);
         return {
-          productName: g.productName, sku: g.sku, size: g.size, color: g.color, qty: g.qty, returned: g.returned, netQty: g.qty - g.returned,
+          variantId: g.variantId, productName: g.productName, sku: g.sku, size: g.size, color: g.color, qty: g.qty, returned: g.returned, netQty: g.qty - g.returned,
           sales: round2(g.sales), cost: round2(g.cost), profit, margin: g.taxable ? round2((profit / g.taxable) * 100) : 0,
           cash: round2(g.cash), upi: round2(g.upi), card: round2(g.card), other: round2(g.other), stock: sm.get(String(g.variantId)) ?? 0,
           lastPurchase: p.date, purchaseRate: p.rate, supplier: p.supplier || '', purchaseNo: p.purchaseNo || '',
@@ -744,4 +744,74 @@ async function run(req, key) {
   return { key, title: def.title, group: def.group, columns: def.columns, from: ctx.from, to: ctx.to, ...result };
 }
 
-module.exports = { catalogue, run };
+/**
+ * Everything about one product (variant) for the sales summary drill-down, in the report's period and branch:
+ * the product, stock left per branch, every bill line it was sold on (customer, cashier, how the bill was paid)
+ * and its purchases.
+ */
+async function productDetail(req, variantId) {
+  if (!mongoose.isValidObjectId(variantId)) throw ApiError.badRequest('Invalid product');
+  const ctx = ctxFrom(req);
+  const vid = oid(variantId);
+  const variant = await ProductVariant.findOne({ _id: vid, companyId: ctx.companyId })
+    .select('productName productCode sku barcode size color categoryName brandName mrp sellingPrice purchasePrice gstRate hsnCode status').lean();
+  if (!variant) throw ApiError.notFound('Product not found');
+  const [names, stocks, lines, buys] = await Promise.all([
+    branchNames(ctx.companyId),
+    Stock.find({ companyId: ctx.companyId, ...ctx.branch, variantId: vid }).select('branchId current').lean(),
+    SaleItem.find(saleMatch(ctx, { variantId: vid })).sort({ createdAt: -1 }).limit(1000)
+      .select('saleId invoiceNumber branchId qty returnedQty rate discount amount taxable costPrice createdAt returnOf').lean(),
+    PurchaseItem.find({ companyId: ctx.companyId, ...ctx.branch, variantId: vid, status: 'received' }).sort({ invoiceDate: -1, createdAt: -1 }).limit(100)
+      .select('purchaseId branchId qty returnedQty rate mrp invoiceDate').lean(),
+  ]);
+  const [bills, purchases] = await Promise.all([
+    Sale.find({ _id: { $in: [...new Set(lines.map((l) => String(l.saleId)))] } }).select('payments customer cashierName').lean(),
+    Purchase.find({ _id: { $in: [...new Set(buys.map((b) => String(b.purchaseId)))] } }).select('purchaseNo supplierName invoiceNumber').lean(),
+  ]);
+  const bm = new Map(bills.map((b) => [String(b._id), b]));
+  const pm = new Map(purchases.map((p) => [String(p._id), p]));
+  const byMode = {};
+  const sales = lines.map((l) => {
+    const b = bm.get(String(l.saleId)) || {};
+    const pays = (b.payments || []).filter((p) => Number(p.amount));
+    const paid = pays.reduce((a, p) => a + Math.abs(p.amount), 0) || 1;
+    const returned = l.qty > 0 ? Math.min(l.returnedQty || 0, l.qty) : 0;
+    const amount = l.qty > 0 ? l.amount * ((l.qty - returned) / l.qty) : l.amount;
+    // this line's money split the way its bill was paid
+    pays.forEach((p) => { byMode[p.mode] = (byMode[p.mode] || 0) + (amount * Math.abs(p.amount)) / paid; });
+    return {
+      date: l.createdAt, invoiceNumber: l.invoiceNumber, branch: names.get(String(l.branchId)) || '',
+      customer: b.customer?.name || 'Walk-in', mobile: b.customer?.mobile || '', cashier: b.cashierName || '',
+      qty: l.qty, returned, rate: l.rate, discount: round2(l.discount || 0), amount: round2(l.amount),
+      profit: round2((l.taxable || 0) * (l.qty > 0 ? (l.qty - returned) / l.qty : 1) - (l.costPrice || 0) * (l.qty > 0 ? l.qty - returned : l.qty)),
+      returnOf: l.returnOf?.invoiceNumber || '',
+      payment: pays.map((p) => `${modeName(p.mode)} ${round2(Math.abs(p.amount))}`).join(' + ') || '-',
+    };
+  });
+  const sold = lines.filter((l) => l.qty > 0);
+  const summary = {
+    bills: new Set(lines.map((l) => String(l.saleId))).size,
+    qty: sold.reduce((a, l) => a + l.qty, 0),
+    returned: sales.reduce((a, s) => a + s.returned, 0) + lines.filter((l) => l.qty < 0).reduce((a, l) => a - l.qty, 0),
+    sales: round2(sales.reduce((a, s) => a + (s.qty > 0 ? (s.amount * (s.qty - s.returned)) / s.qty : s.amount), 0)),
+    discount: round2(sales.reduce((a, s) => a + s.discount, 0)),
+    profit: round2(sales.reduce((a, s) => a + s.profit, 0)),
+    byMode: Object.entries(byMode).map(([mode, amount]) => ({ mode: modeName(mode), amount: round2(amount) })).sort((a, b) => b.amount - a.amount),
+  };
+  summary.netQty = summary.qty - summary.returned;
+  return {
+    variant,
+    stock: stocks.map((s) => ({ branch: names.get(String(s.branchId)) || '', current: s.current })).sort((a, b) => a.branch.localeCompare(b.branch)),
+    totalStock: stocks.reduce((a, s) => a + (s.current || 0), 0),
+    summary,
+    sales,
+    purchases: buys.map((p) => {
+      const h = pm.get(String(p.purchaseId)) || {};
+      return { date: p.invoiceDate, purchaseNo: h.purchaseNo || '', supplier: h.supplierName || '', billNo: h.invoiceNumber || '', branch: names.get(String(p.branchId)) || '', qty: p.qty, returned: p.returnedQty || 0, rate: p.rate, mrp: p.mrp };
+    }),
+    from: ctx.from,
+    to: ctx.to,
+  };
+}
+
+module.exports = { catalogue, run, productDetail };
