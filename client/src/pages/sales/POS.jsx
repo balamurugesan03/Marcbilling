@@ -77,6 +77,44 @@ function DiscountModal({ open, onClose, line, maxPct, onSubmit, title = 'Item Di
   );
 }
 
+/**
+ * Discount typed straight into the bill: "50" = ₹50 off, "10%" = 10 % off.
+ * Applied on Enter / leaving the box, with the same checks as the discount popup (amount, role limit).
+ */
+function DiscInput({ value, gross, maxPct, onApply, onDone, className }) {
+  const shown = value?.discountPercent ? `${value.discountPercent}%` : value?.discount ? String(value.discount) : '';
+  const [v, setV] = useState(shown);
+  const [editing, setEditing] = useState(false);
+  const cancel = useRef(false);
+  useEffect(() => { if (!editing) setV(shown); }, [shown, editing]);
+  const commit = () => {
+    setEditing(false);
+    if (cancel.current) { cancel.current = false; setV(shown); return; }
+    const t = v.trim().replace(/\s/g, '');
+    if (t === shown) return;
+    const isPct = t.endsWith('%');
+    const n = Number(t.replace('%', '')) || 0;
+    const amt = isPct ? round2((gross * n) / 100) : round2(n);
+    const fail = (msg) => { toast.error(msg); setV(shown); };
+    if (n < 0 || amt > gross + 0.001) return fail('Discount cannot exceed the amount');
+    if (gross && round2((amt / gross) * 100) > maxPct + 0.001) return fail(`Your discount limit is ${maxPct}%`);
+    onApply(isPct ? { discountPercent: n, discount: 0 } : { discount: amt, discountPercent: 0 });
+    return null;
+  };
+  return (
+    <input type="text" inputMode="decimal" placeholder="0" title='Type amount (50) or percent (10%) and press Enter'
+      className={clsx('input input-sm text-right tabular-nums text-rose-600', className)} value={v}
+      onChange={(e) => setV(e.target.value.replace(/[^\d.%]/g, ''))}
+      onFocus={(e) => { setEditing(true); e.target.select(); }}
+      onClick={(e) => e.stopPropagation()}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); onDone?.(); }
+        if (e.key === 'Escape') { e.preventDefault(); cancel.current = true; e.currentTarget.blur(); onDone?.(); }
+      }} />
+  );
+}
+
 function CustomerModal({ open, onClose, onPick, onNew }) {
   const [q, setQ] = useState('');
   const dq = useDebounce(q, 200);
@@ -752,7 +790,14 @@ export default function POS() {
                           </div>
                         </td>
                         <td className="num">{inr(l.rate)}{l.rate !== l.originalRate && <div className="text-[10px] text-amber-600 line-through">{inr(l.originalRate)}</div>}</td>
-                        <td className="num text-rose-600">{l.discountTotal ? `-${inr(l.discountTotal)}` : '-'}</td>
+                        <td className="num text-rose-600">
+                          {l.qty > 0 && can('sale.discount') ? (
+                            <>
+                              <DiscInput className="ml-auto w-20" value={l} gross={l.gross} maxPct={maxPct} onApply={(d) => pos.updateLine(i, d)} onDone={focusScan} />
+                              {round2(l.discountTotal - l.lineDiscount) > 0 && <div className="text-[10px]">bill -{inr(l.discountTotal - l.lineDiscount)}</div>}
+                            </>
+                          ) : (l.discountTotal ? `-${inr(l.discountTotal)}` : '-')}
+                        </td>
                         <td className="num text-xs text-ink-500">{l.gstRate}%</td>
                         <td className={clsx('num font-semibold', l.qty < 0 && 'text-rose-600')}>{inr(l.amount)}</td>
                         <td className="whitespace-nowrap">
@@ -808,6 +853,13 @@ export default function POS() {
                 <dt className="text-ink-500">Discount {totals.billDiscount > 0 && <span className="text-[11px]">(bill {inr(totals.billDiscount)})</span>}</dt>
                 <dd className={clsx('tabular-nums', totals.discount > 0 && 'text-rose-600')}>{totals.discount > 0 ? `-${inr(totals.discount)}` : inr(0)}</dd>
               </div>
+              {can('sale.discount') && items.length > 0 && (
+                <div className="flex items-center justify-between">
+                  <dt className="text-ink-500">Bill discount <span className="text-[11px]">(₹ or %)</span></dt>
+                  <dd><DiscInput className="w-24" value={{ discount: billDiscount }} gross={soldNet} maxPct={Math.min(maxPct, settings?.discount?.maxBillDiscountPercent ?? 100)}
+                    onApply={(d) => pos.setBillDiscount(d.discountPercent ? round2((soldNet * d.discountPercent) / 100) : d.discount)} onDone={focusScan} /></dd>
+                </div>
+              )}
               <div className="flex justify-between"><dt className="text-ink-500">Taxable</dt><dd className="tabular-nums">{inr(totals.taxable)}</dd></div>
               {interState ? <div className="flex justify-between"><dt className="text-ink-500">IGST</dt><dd className="tabular-nums">{inr(totals.igst)}</dd></div> : (
                 <div className="flex justify-between"><dt className="text-ink-500">GST (CGST {inr(totals.cgst)} + SGST {inr(totals.sgst)})</dt><dd className="tabular-nums">{inr(totals.totalTax)}</dd></div>
