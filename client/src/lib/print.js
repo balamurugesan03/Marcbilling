@@ -289,13 +289,13 @@ export function labelsHtml(labels, { size = '50x25', columns = 1, storeName = ''
     .row:last-child { break-after: auto; page-break-after: auto; }
     .lbl { width: ${s.w}mm; height: ${s.h}mm; padding: 1mm 1.5mm 0.8mm; overflow: hidden; display: flex; flex-direction: column; text-align: center; line-height: 1.15; break-inside: avoid; page-break-inside: avoid; }
     .lbl > div { flex: 0 0 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .store { font-size: ${fs(6.5, 5.5, 5)}pt; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; }
+    .store { font: 900 ${fs(8, 7, 6)}pt/1.15 'Arial Black', Arial, Helvetica, sans-serif; letter-spacing: .4px; text-transform: uppercase; }
     .name { font-size: ${fs(7.5, 6.5, 6)}pt; font-weight: 700; }
     .meta { font-size: ${fs(6.5, 5.5, 5)}pt; color: #222; }
     .lbl > .bc { flex: 1 1 0; min-height: 3mm; position: relative; margin: 0.5mm 0.5mm 0; }
     .bc svg { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
     .code { font: ${fs(7, 6, 5.5)}pt/1.1 'Courier New', monospace; letter-spacing: .5px; }
-    .price { font-size: ${fs(8.5, 7.5, 6.5)}pt; } .strike { text-decoration: line-through; color: #444; }
+    .price { font: 900 ${fs(9.5, 8.5, 7)}pt/1.15 'Arial Black', Arial, Helvetica, sans-serif; } .price b { font-weight: 900; } .strike { text-decoration: line-through; color: #000; }
   </style></head><body>${body}</body></html>`;
 }
 
