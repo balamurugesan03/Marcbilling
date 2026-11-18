@@ -387,21 +387,19 @@ function accLabelsHtml(labels, { storeName = '', fields: f, slots = [0], w = 75 
     const besideFs = fit(code, big ? 3 : narrow ? 2.2 : 2.6, infoW, 0.72);
     const codeBeside = !narrow || besideFs >= 1.8;
     const codeFs = codeBeside ? besideFs : fit(code, 2.3, fullW, 0.72);
-    // brand (MARC) sits small under the product name, beside the QR
-    const brandFs = brand ? fit(brand, narrow ? 1.8 : 2, infoW, 0.75) : 0;
-    const nameRoom = G.qr - (f.showSku && codeBeside ? codeFs * 1.15 + 0.6 : 0) - (brand ? brandFs * 1.2 + 0.4 : 0);
-    let nameFs = big ? 2.8 : narrow ? 2.1 : 2.4;
+    const nameRoom = G.qr - (f.showSku && codeBeside ? codeFs * 1.15 + 0.6 : 0);
+    let nameFs = big ? 2.3 : narrow ? 1.75 : 2; // product name a little smaller than the code
     const lines = (fs) => Math.ceil(name.length / Math.max(1, Math.floor(infoW / (fs * 0.66))));
     while (nameFs > 1.5 && lines(nameFs) * nameFs * 1.12 > nameRoom) nameFs -= 0.1;
     const mrp = `MRP : ${money(l.mrp)}`;
     const net = `Net Rs: ${money(l.sellingPrice)}`;
     const codeDiv = f.showSku ? `<div class="code" data-fit style="font-size:${px(codeFs)}mm">${esc(code)}</div>` : '';
     return `<div class="lbl" style="left:${slots[i]}mm">
+      ${brand ? `<div class="brand" data-fit style="font-size:${px(fit(brand, G.brandH / 1.3, fullW, 0.75))}mm">${esc(brand)}</div>` : ''}
       <div class="qr">${qrSvg(code, G.qr)}</div>
       <div class="info">
         ${codeBeside ? codeDiv : ''}
-        ${f.showProductName && name ? `<div class="name" data-fit style="font-size:${px(nameFs)}mm;max-height:${px(nameRoom)}mm">${esc(name)}</div>` : ''}
-        ${brand ? `<div class="brand" data-fit style="font-size:${px(brandFs)}mm">${esc(brand)}</div>` : ''}
+        ${f.showProductName && name ? `<div class="name" data-fit style="font-size:${px(nameFs)}mm;height:${px(nameRoom)}mm">${esc(name)}</div>` : ''}
       </div>
       ${codeBeside ? '' : codeDiv.replace('class="code"', 'class="code coderow"')}
       ${f.showMrp ? `<div class="mrp" data-fit style="font-size:${px(fit(mrp, big ? 2.8 : narrow ? 2.3 : 2.6, fullW, 0.62))}mm">${esc(mrp)}</div>` : ''}
@@ -418,7 +416,7 @@ function accLabelsHtml(labels, { storeName = '', fields: f, slots = [0], w = 75 
     .row:last-child { break-after: auto; page-break-after: auto; }
     .lbl { position: absolute; top: 0; width: ${W}mm; height: 24mm; overflow: hidden; }
     .lbl > div { position: absolute; overflow: hidden; }
-    .info .brand { position: static; flex: none; margin-top: .4mm; line-height: 1.2; font-weight: 900; letter-spacing: .1mm; white-space: nowrap; overflow: hidden; }
+    .brand { left: ${M}mm; width: ${fullW}mm; top: ${G.brandTop}mm; height: ${G.brandH}mm; line-height: ${G.brandH}mm; text-align: center; font-weight: 900; letter-spacing: .1mm; white-space: nowrap; }
     .qr { left: ${M}mm; top: ${G.qrTop}mm; width: ${G.qr}mm; height: ${G.qr}mm; }
     .qr svg { display: block; }
     .info { left: ${infoL}mm; width: ${infoW}mm; top: ${G.qrTop}mm; height: ${G.qr}mm; display: flex; flex-direction: column; justify-content: center; }
