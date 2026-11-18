@@ -356,32 +356,47 @@ function qrSvg(text, sizeMm) {
 }
 
 function accLabelsHtml(labels, { storeName = '', fields: f, cols = 1 }) {
+  // Fixed grid (mm), the same margin M on all four sides; every box clips its own text so nothing leaves the label.
   const two = cols === 2;
-  const lw = two ? 37.5 : 75;
-  const k = two ? 1 : 1.1; // 1 across: a little bigger text (height stays 24 mm)
-  const fs = (mm) => `${(mm * k).toFixed(2)}mm`;
-  const qrMm = two ? 12 : 11.6;
-  const flat = labels.flatMap((l) => Array.from({ length: l.qty }, () => l));
+  const W = two ? 37.5 : 75; // label width; height is always 24
+  const M = 1.2; // margin, all four sides
+  const G = {
+    brandTop: M, brandH: 3.8, // brand row, centred; ends exactly where the QR starts
+    qrTop: 5.0, qr: 10.8, // QR square incl. its quiet zone
+    mrpTop: 16.5, netTop: 19.5, // price rows
+  };
+  const gap = two ? 1.2 : 1.8; // QR -> text
+  const infoL = M + G.qr + gap;
+  const infoW = W - infoL - M;
+  const fullW = W - 2 * M;
+  // font size that keeps a single line inside its width (bold Arial is ~0.62 em per char, digits/caps up to ~0.72)
+  const fit = (text, max, width, em = 0.7) => Math.max(1.6, Math.min(max, width / (Math.max(1, String(text).length) * em)));
   const money = (n) => (Number(n) || 0).toFixed(2);
-  const infoW = lw - (two ? 3.2 : 5) - qrMm + 0.6 - (two ? 1.2 : 2); // room right of the QR
+  const flat = labels.flatMap((l) => Array.from({ length: l.qty }, () => l));
+
   const label = (l) => {
     const code = String(l.barcode || l.sku || '');
-    const codeFs = Math.min(2.7 * k, infoW / (code.length * 0.8)).toFixed(2); // long codes shrink to fit, never cut
     const brand = f.showStoreName ? (storeName || l.brandName || '') : '';
     const size = f.showSizeColor ? [l.color, l.size].filter(Boolean).join(' / ') : '';
+    const name = [String(l.productName || '').toUpperCase(), size].filter(Boolean).join(' ');
+    const codeFs = fit(code, two ? 2.6 : 3, infoW, 0.72);
+    // product name: the biggest size at which it fits in up to 2 lines (3 lines when small) under the code
+    const nameRoom = G.qr - codeFs * 1.15 - 0.6;
+    let nameFs = two ? 2.4 : 2.8;
+    const lines = (fs) => Math.ceil(name.length / Math.max(1, Math.floor(infoW / (fs * 0.66))));
+    while (nameFs > 1.6 && (lines(nameFs) > 3 || lines(nameFs) * nameFs * 1.12 > nameRoom)) nameFs -= 0.1;
+    const mrp = `MRP : ${money(l.mrp)}`;
+    const net = `Net Rs: ${money(l.sellingPrice)}`;
+    const px = (n) => n.toFixed(2);
     return `<div class="lbl">
-      ${brand ? `<div class="brand">${esc(brand)}</div>` : ''}
-      <div class="mid">
-        <div class="qr">${qrSvg(code, qrMm)}</div>
-        <div class="info">
-          ${f.showSku ? `<div class="code" style="font-size:${codeFs}mm">${esc(code)}</div>` : ''}
-          ${f.showProductName ? `<div class="name">${esc(l.productName || '')}${size ? ` <b>${esc(size)}</b>` : ''}</div>` : ''}
-        </div>
+      ${brand ? `<div class="brand" data-fit style="font-size:${px(fit(brand, G.brandH / 1.3, fullW, 0.75))}mm">${esc(brand)}</div>` : ''}
+      <div class="qr">${qrSvg(code, G.qr)}</div>
+      <div class="info">
+        ${f.showSku ? `<div class="code" data-fit style="font-size:${px(codeFs)}mm">${esc(code)}</div>` : ''}
+        ${f.showProductName && name ? `<div class="name" data-fit style="font-size:${px(nameFs)}mm;height:${px(nameRoom)}mm">${esc(name)}</div>` : ''}
       </div>
-      <div class="price">
-        ${f.showMrp ? `<div class="mrp">MRP : ${money(l.mrp)}</div>` : ''}
-        ${f.showSellingPrice ? `<div class="net">Net Rs: ${money(l.sellingPrice)}</div>` : ''}
-      </div>
+      ${f.showMrp ? `<div class="mrp" data-fit style="font-size:${px(fit(mrp, two ? 2.6 : 2.8, fullW, 0.62))}mm">${esc(mrp)}</div>` : ''}
+      ${f.showSellingPrice ? `<div class="net" data-fit style="font-size:${px(fit(net, 3, fullW, 0.66))}mm">${esc(net)}</div>` : ''}
     </div>`;
   };
   const rows = [];
@@ -392,19 +407,27 @@ function accLabelsHtml(labels, { storeName = '', fields: f, cols = 1 }) {
     html, body { font-family: Arial, Helvetica, sans-serif; color: #000; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .row { display: flex; width: 75mm; height: 24mm; overflow: hidden; break-after: page; page-break-after: always; }
     .row:last-child { break-after: auto; page-break-after: auto; }
-    .lbl { position: relative; width: ${lw}mm; height: 24mm; padding: 1mm ${two ? 1.6 : 2.5}mm 0; overflow: hidden; flex: none; display: flex; flex-direction: column; }
-    .brand { font: 900 ${fs(3)}/1 Arial, Helvetica, sans-serif; letter-spacing: .1mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; height: ${fs(3.2)}; }
-    .mid { display: flex; align-items: center; gap: ${two ? 1.2 : 2}mm; margin-top: .3mm; height: ${qrMm}mm; }
-    .qr { flex: none; width: ${qrMm}mm; height: ${qrMm}mm; margin-left: -.6mm; }
+    .lbl { position: relative; flex: none; width: ${W}mm; height: 24mm; overflow: hidden; }
+    .lbl > div { position: absolute; overflow: hidden; }
+    .brand { left: ${M}mm; width: ${fullW}mm; top: ${G.brandTop}mm; height: ${G.brandH}mm; line-height: ${G.brandH}mm; text-align: center; font-weight: 900; letter-spacing: .1mm; white-space: nowrap; }
+    .qr { left: ${M}mm; top: ${G.qrTop}mm; width: ${G.qr}mm; height: ${G.qr}mm; }
     .qr svg { display: block; }
-    .info { min-width: 0; flex: 1; }
-    .code { font: 900 ${fs(2.7)}/1.15 Arial, Helvetica, sans-serif; letter-spacing: .1mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .name { margin-top: .6mm; font: 700 ${fs(2.5)}/1.15 Arial, Helvetica, sans-serif; text-transform: uppercase; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
-    .name b { font-weight: 900; }
-    .price { margin-top: .4mm; }
-    .mrp { font: 700 ${fs(2.7)}/1.05 Arial, Helvetica, sans-serif; white-space: nowrap; }
-    .net { font: 900 ${fs(3.1)}/1.05 Arial, Helvetica, sans-serif; white-space: nowrap; }
-  </style></head><body>${rows.map((r) => `<div class="row">${r.map(label).join('')}</div>`).join('')}</body></html>`;
+    .info { left: ${infoL}mm; width: ${infoW}mm; top: ${G.qrTop}mm; height: ${G.qr}mm; display: flex; flex-direction: column; justify-content: center; }
+    .code { flex: none; }
+    .code { font-weight: 900; line-height: 1.15; letter-spacing: .05mm; white-space: nowrap; overflow: hidden; }
+    .name { flex: none; margin-top: .6mm; font-weight: 700; line-height: 1.12; overflow: hidden; word-break: break-word; }
+    .mrp, .net { left: ${M}mm; width: ${fullW}mm; white-space: nowrap; line-height: 1.05; }
+    .mrp { top: ${G.mrpTop}mm; height: ${G.netTop - G.mrpTop}mm; font-weight: 700; }
+    .net { top: ${G.netTop}mm; height: ${24 - M - G.netTop}mm; font-weight: 900; }
+  </style></head><body>${rows.map((r) => `<div class="row">${r.map(label).join('')}</div>`).join('')}
+  <script>
+    // last check before printing: any text that would be cut shrinks until it fits its box (never below 1.5 mm)
+    document.querySelectorAll('[data-fit]').forEach(function (el) {
+      var fs = parseFloat(el.style.fontSize) || 2.5;
+      var tall = el.classList.contains('name');
+      while (fs > 1.5 && (el.scrollWidth > el.clientWidth + 0.5 || (tall && el.scrollHeight > el.clientHeight + 0.5))) { fs -= 0.1; el.style.fontSize = fs.toFixed(2) + 'mm'; }
+    });
+  </script></body></html>`;
 }
 
 export function labelsHtml(labels, { size = '50x25', columns = 1, storeName = '', fields = {}, format, batch = '' } = {}) {
