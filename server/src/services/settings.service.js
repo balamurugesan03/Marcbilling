@@ -40,9 +40,12 @@ function fyLabel(d) {
  * Generates the next number of a series atomically (e.g. INV-2026-000001).
  * Tokens: {YYYY} {YY} {MM} {FY} {BRANCH} {SEQ:n}
  */
+// series added later: companies whose settings were saved before they existed use these
+const SERIES_DEFAULTS = { invoiceNoGst: { pattern: 'NG-{YYYY}-{SEQ:6}', scope: 'company', reset: 'yearly' } };
+
 async function nextNumber(companyId, series, { branchId, session = null } = {}) {
   const settings = await get(companyId);
-  const cfg = settings.numberSeries?.[series];
+  const cfg = settings.numberSeries?.[series]?.pattern ? settings.numberSeries[series] : SERIES_DEFAULTS[series];
   if (!cfg) throw new Error(`Number series "${series}" not configured`);
   const now = new Date();
   let branchCode = '';

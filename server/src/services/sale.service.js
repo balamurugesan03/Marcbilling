@@ -227,7 +227,8 @@ async function createSaleInternal(session, req, data, { saleType = 'sale', inter
     ? settleRefund({ refundMode: data.refundMode, grandTotal: totals.grandTotal, customer, settings })
     : settlePayments({ payments: data.payments, grandTotal: totals.grandTotal, customer, settings, internalCredit });
 
-  const invoiceNumber = await settingsService.nextNumber(req.companyId, 'invoice', { branchId, session });
+  // with GST and without GST bills each run their own number sequence
+  const invoiceNumber = await settingsService.nextNumber(req.companyId, withGst ? 'invoice' : 'invoiceNoGst', { branchId, session });
   const stockMap = await stockService.getStockMap(branchId, lines.map((l) => l.variantId), session);
   const costOf = (l) => (l.returnOf ? l.origCost : undefined) ?? stockMap.get(String(l.variantId))?.avgCost ?? l.purchasePrice ?? 0;
   const costTotal = round2(lines.reduce((a, l) => a + costOf(l) * l.qty, 0));

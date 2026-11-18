@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
@@ -8,7 +8,7 @@ import { useAuth } from '../../store/auth';
 import { useDebounce } from '../../hooks';
 import { PageHeader, SearchBox, DateRange, defaultRange } from '../../components/common';
 import { Loading, Empty, Pagination, Modal } from '../../components/ui';
-import { inr, num, fdate, PAYMENT_LABELS } from '../../lib/format';
+import { inr, num, fdate, fdatetime, isoDate, PAYMENT_LABELS } from '../../lib/format';
 import { exportExcel, exportPdf } from '../../lib/export';
 import { printHtml } from '../../lib/print';
 
@@ -18,6 +18,7 @@ const fmt = (c, v) => {
   if (c.type === 'number') return num(v);
   if (c.type === 'percent') return `${num(v)}%`;
   if (c.type === 'date') return fdate(v);
+  if (c.type === 'datetime') return fdatetime(v);
   return String(v);
 };
 /** Sales summary drill-down: everything about one product in the report's period and branch. */
@@ -154,6 +155,13 @@ export default function Reports() {
 
   useEffect(() => { get('/reports').then(setCatalogue).catch((e) => toast.error(errMsg(e))); }, []);
   useEffect(() => { setPage(1); setExtra({}); }, [key]);
+  // Sales Summary opens on today's sales; pick From / To for any other period
+  const prevKey = useRef(null);
+  useEffect(() => {
+    if (key === 'fin_sales') setRange({ from: isoDate(), to: isoDate() });
+    else if (prevKey.current === 'fin_sales') setRange(defaultRange()); // back to the usual month-to-date
+    prevKey.current = key;
+  }, [key]);
   const params = { ...range, search: ds, branchId: branch || undefined, ...extra };
   const load = async () => {
     if (!key) return;
@@ -175,7 +183,7 @@ export default function Reports() {
       else if (kind === 'pdf') await exportPdf(args);
       else {
         const head = all.columns.map((c) => `<th style="text-align:${['money', 'number', 'percent'].includes(c.type) ? 'right' : 'left'}">${c.label}</th>`).join('');
-        const body = all.rows.map((r) => `<tr style="${r.bold ? 'font-weight:700' : ''}">${all.columns.map((c) => `<td style="text-align:${['money', 'number', 'percent'].includes(c.type) ? 'right' : 'left'}">${r.isPercent && c.type === 'money' ? `${r[c.key]}%` : fmt(c, r[c.key])}</td>`).join('')}</tr>`).join('');
+        const body = all.rows.map((r) => `<tr style="${r.bold ? 'font-weight:700;' : ''}${r.tone === 'nogst' ? 'background:#fef3c7;' : r.tone === 'gst' && r.bold ? 'background:#d1fae5;' : ''}">${all.columns.map((c) => `<td style="text-align:${['money', 'number', 'percent'].includes(c.type) ? 'right' : 'left'}">${r.isPercent && c.type === 'money' ? `${r[c.key]}%` : fmt(c, r[c.key])}</td>`).join('')}</tr>`).join('');
         const foot = Object.keys(all.totals || {}).length ? `<tr style="font-weight:700;background:#f3f3f3">${all.columns.map((c, i) => `<td style="text-align:right">${i === 0 ? 'TOTAL' : all.totals[c.key] != null ? fmt(c, all.totals[c.key]) : ''}</td>`).join('')}</tr>` : '';
         printHtml(`<!doctype html><html><head><meta charset="utf-8"><title>${all.title}</title><style>@page{size:A4 landscape;margin:10mm}body{font:11px Arial}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccc;padding:4px 5px}th{background:#f3f3f3}</style></head><body><h2 style="margin:0">${all.title}</h2><div style="color:#555;margin-bottom:8px">${subtitle()}</div><table><thead><tr>${head}</tr></thead><tbody>${body}${foot}</tbody></table></body></html>`);
       }
@@ -206,6 +214,12 @@ export default function Reports() {
               <select className="input w-40" value={branch} onChange={(e) => setBranch(e.target.value)}><option value="">All branches</option>{branches.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}</select>
             )}
             {key === 'cash_book' && <select className="input w-32" value={extra.mode || 'cash'} onChange={(e) => setExtra({ ...extra, mode: e.target.value })}>{['cash', 'bank', 'upi', 'card'].map((m) => <option key={m} value={m}>{PAYMENT_LABELS[m]} book</option>)}</select>}
+            {key === 'fin_sales' && (
+              <select className="input w-44" value={extra.gst || ''} onChange={(e) => setExtra({ ...extra, gst: e.target.value || undefined })}>
+                <option value="">With + Without GST</option><option value="with">With GST only</option><option value="without">Without GST only</option>
+              </select>
+            )}
+            {key === 'fin_sales' && <span className="flex items-center gap-2 text-xs"><span className="badge-green">With GST</span><span className="badge-amber">Without GST</span></span>}
             {key === 'sales_datewise' && <select className="input w-36" value={extra.status || ''} onChange={(e) => setExtra({ ...extra, status: e.target.value || undefined })}><option value="">All status</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select>}
             {key === 'gst_billing' && (
               <select className="input w-40" value={extra.mode || ''} onChange={(e) => setExtra({ ...extra, mode: e.target.value || undefined })}>
@@ -236,8 +250,8 @@ export default function Reports() {
                 <thead><tr>{data.columns.map((c) => <th key={c.key} className={['money', 'number', 'percent'].includes(c.type) ? 'num' : ''}>{c.label}</th>)}</tr></thead>
                 <tbody className={loading ? 'opacity-50' : ''}>
                   {data.rows.map((r, i) => (
-                    <tr key={i} onClick={r.variantId ? () => setDetail(r.variantId) : undefined} title={r.variantId ? "Click for full details" : undefined} className={clsx(r.bold && "bg-ink-50 font-bold dark:bg-ink-800/60", r.memo && "text-ink-500", r.variantId && "cursor-pointer hover:bg-brand-50 dark:hover:bg-brand-500/10")}>
-                      {data.columns.map((c) => <td key={c.key} className={clsx(['money', 'number', 'percent'].includes(c.type) && 'num', c.type === 'money' && Number(r[c.key]) < 0 && 'text-rose-600')}>{r.isPercent && c.type === 'money' ? `${r[c.key]}%` : fmt(c, r[c.key])}</td>)}
+                    <tr key={i} onClick={r.variantId ? () => setDetail(r.variantId) : undefined} title={r.variantId ? "Click for full details" : undefined} className={clsx(r.bold && "bg-ink-50 font-bold dark:bg-ink-800/60", r.tone === 'nogst' && 'bg-amber-50 dark:bg-amber-500/10', r.tone === 'gst' && r.bold && 'bg-emerald-50 dark:bg-emerald-500/10', r.memo && "text-ink-500", r.variantId && "cursor-pointer hover:bg-brand-50 dark:hover:bg-brand-500/10")}>
+                      {data.columns.map((c) => <td key={c.key} className={clsx(['money', 'number', 'percent'].includes(c.type) && 'num', c.type === 'money' && Number(r[c.key]) < 0 && 'text-rose-600')}>{c.key === 'gstType' && r.tone && !r.bold ? <span className={r.tone === 'nogst' ? 'badge-amber' : 'badge-green'}>{r[c.key]}</span> : r.isPercent && c.type === 'money' ? `${r[c.key]}%` : fmt(c, r[c.key])}</td>)}
                     </tr>
                   ))}
                 </tbody>

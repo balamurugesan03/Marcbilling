@@ -444,9 +444,35 @@ const REPORTS = {
   /* ---------------- FINANCIAL ---------------- */
   fin_sales: {
     group: 'Financial', financial: true, title: 'Sales Summary',
-    // each day: its bill numbers (first – last) and how it was paid (Cash / GPay / Card / Others)
-    columns: [C('period', 'Date'), C('billNos', 'Bill No'), ...periodCols('Date').slice(1, 8), money('cash', 'Cash'), money('upi', 'GPay'), money('card', 'Card'), money('other', 'Others'), ...periodCols('Date').slice(8)],
-    run: (ctx) => salesByPeriod(ctx, dayKey),
+    // every bill on its own row, marked With GST / Without GST (?gst=with|without), how it was paid,
+    // then a total for each kind (those summary rows are left out of the grand total)
+    columns: [C('date', 'Date & Time', 'datetime'), C('invoiceNumber', 'Bill No'), C('gstType', 'Type'), C('customer', 'Customer'), num('qty', 'Items'), money('gross', 'Gross'), money('discount', 'Discount'),
+      money('taxable', 'Taxable'), money('tax', 'GST'), money('cash', 'Cash'), money('upi', 'GPay'), money('card', 'Card'), money('other', 'Others'), money('total', 'Total')],
+    run: async (ctx) => {
+      const extra = ctx.q.gst === 'without' ? { withGst: false } : ctx.q.gst === 'with' ? { withGst: { $ne: false } } : {};
+      const m = saleMatch(ctx, extra);
+      if (ctx.search) m.$or = [{ invoiceNumber: new RegExp(escapeRegex(ctx.search), 'i') }, { 'customer.name': new RegExp(escapeRegex(ctx.search), 'i') }, { 'customer.mobile': new RegExp(escapeRegex(ctx.search)) }];
+      const sales = await Sale.find(m).sort({ createdAt: 1 }).select('createdAt invoiceNumber withGst customer totals payments').lean();
+      const KEYS = ['qty', 'gross', 'discount', 'taxable', 'tax', 'cash', 'upi', 'card', 'other', 'total'];
+      const by = (s, modes) => round2((s.payments || []).filter((p) => modes.includes(p.mode)).reduce((a, p) => a + p.amount, 0));
+      const rows = sales.map((s) => {
+        const noGst = s.withGst === false;
+        return {
+          date: s.createdAt, invoiceNumber: s.invoiceNumber, gstType: noGst ? 'Without GST' : 'With GST', tone: noGst ? 'nogst' : 'gst',
+          customer: s.customer?.name || 'Walk-in', qty: s.totals.totalQty, gross: round2(s.totals.subtotal), discount: round2(s.totals.discount),
+          taxable: round2(s.totals.taxable), tax: round2(s.totals.totalTax), total: round2(s.totals.grandTotal),
+          cash: by(s, ['cash']), upi: by(s, ['upi']), card: by(s, ['card']), other: by(s, ['bank', 'credit', 'store_credit', 'loyalty', 'exchange']),
+        };
+      });
+      const sum = (list) => Object.fromEntries(KEYS.map((k) => [k, round2(list.reduce((a, r) => a + (Number(r[k]) || 0), 0))]));
+      for (const [tone, label] of [['gst', 'With GST'], ['nogst', 'Without GST']]) {
+        const list = rows.filter((r) => r.tone === tone);
+        if (list.length) rows.push({ invoiceNumber: `${label} total`, gstType: `${list.length} bill${list.length > 1 ? 's' : ''}`, tone, bold: true, ...sum(list) });
+      }
+      const r = paginateRows(rows, ctx, []);
+      r.totals = sum(rows.filter((x) => !x.bold));
+      return r;
+    },
   },
   fin_purchase: {
     group: 'Financial', financial: true, title: 'Purchase Summary',

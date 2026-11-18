@@ -41,7 +41,7 @@ const SECTIONS = [
   { key: 'cash', label: 'Cash', fields: [T('requireSessionForBilling', 'Require an open cash session before billing')] },
   { key: 'numberSeries', label: 'Number Series', fields: [{ key: 'series', type: 'series' }] },
 ];
-const SERIES_LABELS = { invoice: 'Sales invoice', saleReturn: 'Sales return', exchange: 'Exchange', purchase: 'Purchase', purchaseReturn: 'Purchase return', transfer: 'Stock transfer', adjustment: 'Stock adjustment', expense: 'Expense', payment: 'Payment', hold: 'Hold bill', cashSession: 'Cash session', customer: 'Customer code', product: 'Product code' };
+const SERIES_LABELS = { invoice: 'Sales invoice (with GST)', invoiceNoGst: 'Sales invoice (without GST)', saleReturn: 'Sales return', exchange: 'Exchange', purchase: 'Purchase', purchaseReturn: 'Purchase return', transfer: 'Stock transfer', adjustment: 'Stock adjustment', expense: 'Expense', payment: 'Payment', hold: 'Hold bill', cashSession: 'Cash session', customer: 'Customer code', product: 'Product code' };
 
 function preview(p) {
   const now = new Date();
@@ -99,7 +99,7 @@ export default function Settings() {
                   <p className="mb-3 text-sm text-ink-500">Tokens: <code>{'{YYYY}'}</code> <code>{'{YY}'}</code> <code>{'{MM}'}</code> <code>{'{FY}'}</code> <code>{'{BRANCH}'}</code> <code>{'{SEQ:6}'}</code>. With scope “branch”, each branch has its own counter — include {'{BRANCH}'} to keep numbers unique.</p>
                   <table className="tbl"><thead><tr><th>Document</th><th>Pattern</th><th>Scope</th><th>Reset</th><th>Preview</th></tr></thead>
                     <tbody>{Object.keys(SERIES_LABELS).map((k) => {
-                      const s = draft[k] || {};
+                      const s = draft[k] || (k === 'invoiceNoGst' ? { pattern: 'NG-{YYYY}-{SEQ:6}', scope: 'company', reset: 'yearly' } : {});
                       const upd = (patch) => setDraft({ ...draft, [k]: { ...s, ...patch } });
                       return (
                         <tr key={k}><td className="font-medium">{SERIES_LABELS[k]}</td>

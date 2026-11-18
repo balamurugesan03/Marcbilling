@@ -79,6 +79,7 @@ const settingsSchema = new Schema({
   },
   numberSeries: {
     invoice: { type: seriesSchema, default: () => ({ pattern: 'INV-{YYYY}-{SEQ:6}', scope: 'company', reset: 'yearly' }) },
+    invoiceNoGst: { type: seriesSchema, default: () => ({ pattern: 'NG-{YYYY}-{SEQ:6}', scope: 'company', reset: 'yearly' }) }, // bills made "without GST"
     saleReturn: { type: seriesSchema, default: () => ({ pattern: 'SR-{YYYY}-{SEQ:5}', scope: 'company', reset: 'yearly' }) },
     exchange: { type: seriesSchema, default: () => ({ pattern: 'EX-{YYYY}-{SEQ:5}', scope: 'company', reset: 'yearly' }) },
     purchase: { type: seriesSchema, default: () => ({ pattern: 'PUR-{YYYY}-{SEQ:5}', scope: 'company', reset: 'yearly' }) },
