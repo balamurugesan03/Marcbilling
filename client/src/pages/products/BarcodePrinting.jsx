@@ -7,6 +7,7 @@ import { useAuth } from '../../store/auth';
 import { PageHeader, ScanInput } from '../../components/common';
 import { Toggle, Empty } from '../../components/ui';
 import { LABEL_SIZES, labelsHtml, printHtml } from '../../lib/print';
+import { labelsZpl, zebraPrint, downloadPrn } from '../../lib/zpl';
 import { inr, variantLabel } from '../../lib/format';
 
 export default function BarcodePrinting() {
@@ -22,6 +23,11 @@ export default function BarcodePrinting() {
     showSizeColor: b.showSizeColor ?? true, showMrp: b.showMrp ?? true, showSellingPrice: b.showSellingPrice ?? true,
   });
   const [busy, setBusy] = useState(false);
+  // per computer: the PC with the Zebra prints ZPL direct, others keep the browser print dialog
+  const [mode, setModeState] = useState(() => localStorage.getItem('labelPrintMode') || 'zpl');
+  const setMode = (m) => { localStorage.setItem('labelPrintMode', m); setModeState(m); };
+  const zplMode = mode === 'zpl';
+  const fetchLabels = () => post('/barcodes/labels', { items: queue.map((q) => ({ variantId: q._id, qty: Number(q.qty) || 1 })) });
 
   useEffect(() => { if (location.state?.variants) setQueue(location.state.variants.map((v) => ({ ...v, qty: v.qty || 1 }))); }, [location.state]);
   const add = (v) => {
@@ -36,7 +42,18 @@ export default function BarcodePrinting() {
     if (!queue.length) return toast.error('Add products to print');
     setBusy(true);
     try {
-      const labels = await post('/barcodes/labels', { items: queue.map((q) => ({ variantId: q._id, qty: Number(q.qty) || 1 })) });
+      const labels = await fetchLabels();
+      if (zplMode) {
+        const zpl = labelsZpl(labels, { storeName: company?.name, fields });
+        try {
+          const printer = await zebraPrint(zpl);
+          toast.success(`Sent ${total} label(s) to ${printer}`);
+        } catch (e) {
+          downloadPrn(zpl);
+          toast.error(`${e.message} Labels saved as labels.prn instead.`, { duration: 8000 });
+        }
+        return null;
+      }
       await printHtml(labelsHtml(labels, { size, columns, storeName: company?.name, fields, format: format || undefined }), { title: 'Barcode labels' });
     } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
     return null;
@@ -67,16 +84,28 @@ export default function BarcodePrinting() {
         </div>
         <div className="card card-pad h-fit space-y-4">
           <div className="section-title">Label settings</div>
-          <label className="block"><span className="label">Label size</span><select className="input" value={size} onChange={(e) => setSize(e.target.value)}>{Object.entries(LABEL_SIZES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></label>
-          {!LABEL_SIZES[size]?.sheet && <label className="block"><span className="label">Labels across (roll columns)</span><select className="input" value={columns} onChange={(e) => setColumns(Number(e.target.value))}>{[1, 2, 3].map((c) => <option key={c} value={c}>{c}</option>)}</select></label>}
-          <label className="block"><span className="label">Barcode format</span><select className="input" value={format} onChange={(e) => setFormat(e.target.value)}><option value="">As stored (per variant)</option><option value="CODE128">Code128 (force)</option></select></label>
+          <label className="block"><span className="label">Printer</span><select className="input" value={mode} onChange={(e) => setMode(e.target.value)}><option value="zpl">Zebra ZD220 direct (ZPL, 2 across, 25 mm)</option><option value="browser">Browser print dialog (any printer)</option></select></label>
+          {zplMode ? (
+            <div className="space-y-2 text-xs text-ink-500">
+              <div>Prints your ZebraDesigner layout straight to the Zebra: no print dialog, no paper size to set. Needs <b>Zebra Browser Print</b> running on this computer (the first time, click Accept on its "allow this site" popup).</div>
+              <button type="button" className="btn-secondary w-full" disabled={busy || !queue.length} onClick={async () => {
+                try { downloadPrn(labelsZpl(await fetchLabels(), { storeName: company?.name, fields })); } catch (e) { toast.error(errMsg(e)); }
+              }}>Download .prn file</button>
+            </div>
+          ) : (
+            <>
+              <label className="block"><span className="label">Label size</span><select className="input" value={size} onChange={(e) => setSize(e.target.value)}>{Object.entries(LABEL_SIZES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></label>
+              {!LABEL_SIZES[size]?.sheet && <label className="block"><span className="label">Labels across (roll columns)</span><select className="input" value={columns} onChange={(e) => setColumns(Number(e.target.value))}>{[1, 2, 3].map((c) => <option key={c} value={c}>{c}</option>)}</select></label>}
+              <label className="block"><span className="label">Barcode format</span><select className="input" value={format} onChange={(e) => setFormat(e.target.value)}><option value="">As stored (per variant)</option><option value="CODE128">Code128 (force)</option></select></label>
+            </>
+          )}
           <div className="space-y-2">
             {[['showStoreName', 'Store name'], ['showProductName', 'Product name'], ['showSku', 'SKU'], ['showSizeColor', 'Size / Colour'], ['showMrp', 'MRP'], ['showSellingPrice', 'Selling price']].map(([k, l]) => (
               <Toggle key={k} checked={fields[k]} onChange={(c) => setFields({ ...fields, [k]: c })} label={l} />
             ))}
           </div>
-          <div className="text-xs text-ink-500">Printer: {settings?.printer?.labelPrinterName || 'choose your label printer in the print dialog'}. In the print dialog set Margins: None, Scale: 100% (not "Fit to page") and turn off Headers and footers. In the printer driver set the paper / stock size to the label size{LABEL_SIZES[size]?.sheet ? '' : ` (${LABEL_SIZES[size]?.w * columns + (columns - 1) * 2} x ${LABEL_SIZES[size]?.h} mm)`} with media type Gap / Label, and calibrate the gap sensor once.</div>
-          {preview && <div><div className="label">Preview</div><iframe title="preview" srcDoc={preview} className="h-40 w-full rounded-lg border border-ink-200 bg-white dark:border-ink-700" /></div>}
+          {!zplMode && <div className="text-xs text-ink-500">Printer: {settings?.printer?.labelPrinterName || 'choose your label printer in the print dialog'}. In the print dialog set Margins: None, Scale: 100% (not "Fit to page") and turn off Headers and footers. In the printer driver set the paper / stock size to the label size{LABEL_SIZES[size]?.sheet ? '' : ` (${LABEL_SIZES[size]?.w * columns + (columns - 1) * 2} x ${LABEL_SIZES[size]?.h} mm)`} with media type Gap / Label, and calibrate the gap sensor once.</div>}
+          {!zplMode && preview && <div><div className="label">Preview</div><iframe title="preview" srcDoc={preview} className="h-40 w-full rounded-lg border border-ink-200 bg-white dark:border-ink-700" /></div>}
         </div>
       </div>
     </div>
