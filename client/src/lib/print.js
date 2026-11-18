@@ -245,7 +245,8 @@ export function a4InvoiceHtml(inv, { duplicate = false } = {}) {
 
 /* ---------------- Barcode labels ---------------- */
 export const LABEL_SIZES = {
-  '50x25': { w: 50, h: 25, label: '50 x 25 mm (roll)' },
+  'MARC-2up': { w: 38.5, h: 25, label: 'MARC design - 2 across (80 x 25 mm roll)', design: 'marc' },
+  '50x25':{ w: 50, h: 25, label: '50 x 25 mm (roll)' },
   '38x25': { w: 38, h: 25, label: '38 x 25 mm (roll)' },
   '40x30': { w: 40, h: 30, label: '40 x 30 mm (roll)' },
   '75x38': { w: 75, h: 38, label: '75 x 38 mm (hang tag)' },
@@ -253,8 +254,72 @@ export const LABEL_SIZES = {
   'A4-24': { w: 64, h: 33.9, label: 'A4 sheet - 24 labels (64 x 33.9)', sheet: { cols: 3, gapX: 2.5, gapY: 0, marginTop: 13, marginLeft: 6 } },
 };
 
+/*
+ * The store's ZebraDesigner label (ZD220, 203 dpi = 8 dots a mm), drawn at the same positions:
+ * 2 labels across, 41 mm apart, 25 mm high. Store name on top, Code128 barcode with its number,
+ * SKU standing on the right edge, then MRP + item name, then Our Price.
+ * Bars are 0.25 mm (2 printer dots) wide so every bar lands on whole dots and scans cleanly.
+ */
+const MARC_PITCH = 41; // mm from one label's left edge to the next
+const MARC_PAGE_W = 80;
+function marcBarcode(value) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  JsBarcode(svg, String(value ?? ''), { format: 'CODE128', width: 1, height: 55, margin: 0, displayValue: false });
+  const modules = parseFloat(svg.getAttribute('width')) || 100;
+  const w = Math.min(modules * 0.25, 32.5); // 32.5 mm free left of the SKU column; only very long codes shrink
+  svg.setAttribute('viewBox', `0 0 ${modules} 55`);
+  svg.setAttribute('preserveAspectRatio', 'none');
+  svg.setAttribute('shape-rendering', 'crispEdges');
+  svg.setAttribute('width', `${w}mm`);
+  svg.setAttribute('height', '6.9mm');
+  svg.removeAttribute('style');
+  return { html: svg.outerHTML, w };
+}
+
+function marcLabelsHtml(labels, { storeName = '', fields: f }) {
+  const flat = labels.flatMap((l) => Array.from({ length: l.qty }, () => l));
+  const money = (n) => (Number(n) || 0).toFixed(2);
+  const label = (l, i) => {
+    const bc = marcBarcode(l.barcode);
+    const name = [l.productName, f.showSizeColor && l.size].filter(Boolean).join(' ');
+    return `<div class="lbl" style="left:${i * MARC_PITCH}mm">
+      ${f.showStoreName && storeName ? `<div class="t store">${esc(storeName)}</div>` : ''}
+      <div class="bc" style="left:${1.25 + (32.75 - bc.w) / 2}mm;width:${bc.w}mm">${bc.html}<div class="code">${esc(l.barcode)}</div></div>
+      ${f.showSku && l.sku ? `<div class="sku" style="font-size:${Math.min(2.6, 13.5 / (String(l.sku).length * 0.62)).toFixed(2)}mm">${esc(l.sku)}</div>` : ''}
+      ${f.showMrp ? `<div class="t mrp"><span>MRP : ${money(l.mrp)}</span></div>` : ''}
+      ${f.showProductName && name ? `<div class="t item">${esc(name)}</div>` : ''}
+      ${f.showSellingPrice ? `<div class="t our"><span>Our Price : ${money(l.sellingPrice)}</span></div>` : ''}
+    </div>`;
+  };
+  const rows = [];
+  for (let i = 0; i < flat.length; i += 2) rows.push(flat.slice(i, i + 2));
+  // positions are the PRN's dot coordinates / 8; text tops are its baselines minus the font's ascent
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Labels</title><style>
+    @page { size: ${MARC_PAGE_W}mm 25mm; margin: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { font-family: Arial, Helvetica, sans-serif; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .row { position: relative; width: ${MARC_PAGE_W}mm; height: 25mm; overflow: hidden; break-after: page; page-break-after: always; }
+    .row:last-child { break-after: auto; page-break-after: auto; }
+    .lbl { position: absolute; top: 0; width: 38.5mm; height: 25mm; overflow: hidden; }
+    .t { position: absolute; line-height: 1; white-space: nowrap; overflow: hidden; font-weight: 700; }
+    .t span { display: inline-block; transform: scaleX(.85); transform-origin: left; }
+    .store { left: 0; width: 38.5mm; top: 1.6mm; text-align: center; font: 900 5.6mm/1 'Arial Black', Arial, sans-serif; letter-spacing: .3mm; text-transform: uppercase; text-overflow: clip; }
+    .bc { position: absolute; top: 7.5mm; text-align: center; }
+    .bc svg { display: block; }
+    .code { font: 700 2.6mm/1 Arial, sans-serif; letter-spacing: .15mm; margin-top: .3mm; white-space: nowrap; }
+    .sku { position: absolute; left: 34.3mm; top: .8mm; width: 2.6mm; height: 13.5mm; writing-mode: vertical-rl; transform: rotate(180deg); font: 700 2.6mm/1 Arial, sans-serif; white-space: nowrap; overflow: hidden; }
+    .mrp { left: 1.4mm; top: 17.4mm; font-size: 3.5mm; width: 21mm; }
+    .item { left: 21.75mm; top: 18.25mm; font-size: 2.2mm; width: 16.5mm; text-overflow: ellipsis; }
+    .our { left: 1.25mm; top: 20.8mm; font-size: 3.65mm; font-weight: 900; width: 37mm; }
+  </style></head><body>${rows.map((r) => `<div class="row">${r.map(label).join('')}</div>`).join('')}</body></html>`;
+}
+
 export function labelsHtml(labels, { size = '50x25', columns = 1, storeName = '', fields = {}, format } = {}) {
   const s = LABEL_SIZES[size] || LABEL_SIZES['50x25'];
+  if (s.design === 'marc') {
+    const f = { showStoreName: true, showProductName: true, showSku: true, showSizeColor: true, showMrp: true, showSellingPrice: true, ...fields };
+    return marcLabelsHtml(labels, { storeName, fields: f });
+  }
   const small = s.h < 24;
   const f = { showStoreName: true, showProductName: true, showSku: true, showSizeColor: true, showMrp: true, showSellingPrice: true, ...fields };
   const flat = labels.flatMap((l) => Array.from({ length: l.qty }, () => l));
