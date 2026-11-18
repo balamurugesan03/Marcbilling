@@ -6,7 +6,7 @@ import { post, errMsg } from '../../lib/api';
 import { useAuth } from '../../store/auth';
 import { PageHeader, ScanInput } from '../../components/common';
 import { Toggle, Empty } from '../../components/ui';
-import { LABEL_SIZES, labelsHtml, printHtml } from '../../lib/print';
+import { LABEL_SIZES, labelsHtml, printHtml, isAccessory } from '../../lib/print';
 import { inr, variantLabel } from '../../lib/format';
 
 export default function BarcodePrinting() {
@@ -31,15 +31,24 @@ export default function BarcodePrinting() {
     if (i >= 0) setQueue(queue.map((q, j) => (j === i ? { ...q, qty: q.qty + 1 } : q)));
     else setQueue([...queue, { ...v, qty: 1 }]);
   };
+  const [batch, setBatch] = useState('');
   const total = queue.reduce((a, q) => a + (Number(q.qty) || 0), 0);
-  const preview = useMemo(() => (queue[0] ? labelsHtml([{ ...queue[0], qty: 1 }], { size, columns: 1, storeName: company?.name, fields, format: format || undefined }) : ''), [queue[0], size, fields, format, company]);
+  // accessories always print on their own 75 x 24 mm label, whatever size is chosen for the rest
+  const ACC = 'ACC-75x24';
+  const hasAcc = size === ACC || queue.some(isAccessory);
+  const opts = (sz) => ({ size: sz, columns, storeName: company?.name, fields, format: format || undefined, batch: batch.trim() });
+  const preview = useMemo(() => (queue[0] ? labelsHtml([{ ...queue[0], qty: 1 }], { ...opts(isAccessory(queue[0]) ? ACC : size), columns: 1 }) : ''), [queue[0], size, fields, format, company, batch]);
 
   const print = async () => {
     if (!queue.length) return toast.error('Add products to print');
     setBusy(true);
     try {
       const labels = await post('/barcodes/labels', { items: queue.map((q) => ({ variantId: q._id, qty: Number(q.qty) || 1 })) });
-      await printHtml(labelsHtml(labels, { size, columns, storeName: company?.name, fields, format: format || undefined }), { title: 'Barcode labels' });
+      const acc = size === ACC ? labels : labels.filter(isAccessory);
+      const rest = size === ACC ? [] : labels.filter((l) => !isAccessory(l));
+      if (acc.length && rest.length) toast('Printing accessories labels (75 x 24 roll) first, then the others', { duration: 6000 });
+      if (acc.length) await printHtml(labelsHtml(acc, opts(ACC)), { title: 'Accessories labels' });
+      if (rest.length) await printHtml(labelsHtml(rest, opts(size)), { title: 'Barcode labels' });
     } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
     return null;
   };
@@ -72,12 +81,18 @@ export default function BarcodePrinting() {
           <label className="block"><span className="label">Label size</span><select className="input" value={size} onChange={(e) => setSize(e.target.value)}>{Object.entries(LABEL_SIZES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></label>
           {!LABEL_SIZES[size]?.sheet && !LABEL_SIZES[size]?.design && <label className="block"><span className="label">Labels across (roll columns)</span><select className="input" value={columns} onChange={(e) => setColumns(Number(e.target.value))}>{[1, 2, 3].map((c) => <option key={c} value={c}>{c}</option>)}</select></label>}
           <label className="block"><span className="label">Barcode format</span><select className="input" value={format} onChange={(e) => setFormat(e.target.value)}><option value="">As stored (per variant)</option><option value="CODE128">Code128 (force)</option></select></label>
+          {hasAcc && (
+            <div className="space-y-2 rounded-lg border border-ink-200 p-3 dark:border-ink-700">
+              <div className="text-xs text-ink-500">Accessories print on the <b>75 x 24 mm</b> label: barcode = item code (SKU). Driver paper 75 x 24 mm, media type <b>Continuous</b> (no gap).</div>
+              <label className="block"><span className="label">Batch number (optional)</span><input className="input" value={batch} maxLength={20} onChange={(e) => setBatch(e.target.value)} placeholder="e.g. B2611" /></label>
+            </div>
+          )}
           <div className="space-y-2">
             {[['showStoreName', 'Store name'], ['showProductName', 'Product name'], ['showSku', 'SKU'], ['showSizeColor', 'Size / Colour'], ['showMrp', 'MRP'], ['showSellingPrice', 'Selling price']].map(([k, l]) => (
               <Toggle key={k} checked={fields[k]} onChange={(c) => setFields({ ...fields, [k]: c })} label={l} />
             ))}
           </div>
-          <div className="text-xs text-ink-500">Printer: {settings?.printer?.labelPrinterName || 'choose your label printer in the print dialog'}. In the print dialog set Margins: None, Scale: 100% (not "Fit to page") and turn off Headers and footers. In the printer driver set the paper / stock size to the label size{LABEL_SIZES[size]?.design ? " (80 x 25 mm)" : LABEL_SIZES[size]?.sheet ? "" : ` (${LABEL_SIZES[size]?.w * columns + (columns - 1) * 2} x ${LABEL_SIZES[size]?.h} mm)`} with media type Gap / Label, and calibrate the gap sensor once.</div>
+          <div className="text-xs text-ink-500">Printer: {settings?.printer?.labelPrinterName || 'choose your label printer in the print dialog'}. In the print dialog set Margins: None, Scale: 100% (not "Fit to page") and turn off Headers and footers. In the printer driver set the paper / stock size to the label size{size === 'MARC-2up' ? ' (80 x 25 mm)' : size === ACC ? ' (75 x 24 mm, Continuous)' : LABEL_SIZES[size]?.sheet ? "" : ` (${LABEL_SIZES[size]?.w * columns + (columns - 1) * 2} x ${LABEL_SIZES[size]?.h} mm)`} with media type Gap / Label, and calibrate the gap sensor once.</div>
           {preview && <div><div className="label">Preview</div><iframe title="preview" srcDoc={preview} className="h-40 w-full rounded-lg border border-ink-200 bg-white dark:border-ink-700" /></div>}
         </div>
       </div>

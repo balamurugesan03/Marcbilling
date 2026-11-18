@@ -246,6 +246,7 @@ export function a4InvoiceHtml(inv, { duplicate = false } = {}) {
 /* ---------------- Barcode labels ---------------- */
 export const LABEL_SIZES = {
   'MARC-2up': { w: 38.5, h: 25, label: 'MARC design - 2 across (80 x 25 mm roll)', design: 'marc' },
+  'ACC-75x24': { w: 75, h: 24, label: 'Accessories - 75 x 24 mm (1 across, no gap)', design: 'acc' },
   '50x25':{ w: 50, h: 25, label: '50 x 25 mm (roll)' },
   '38x25': { w: 38, h: 25, label: '38 x 25 mm (roll)' },
   '40x30': { w: 40, h: 30, label: '40 x 30 mm (roll)' },
@@ -262,16 +263,17 @@ export const LABEL_SIZES = {
  */
 const MARC_PITCH = 41; // mm from one label's left edge to the next
 const MARC_PAGE_W = 80;
-function marcBarcode(value) {
+// maxW: room for the bars (MARC: 32.5 mm left of the SKU column); only very long codes shrink below 0.25 mm bars
+function marcBarcode(value, { maxW = 32.5, h = 6.9 } = {}) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   JsBarcode(svg, String(value ?? ''), { format: 'CODE128', width: 1, height: 55, margin: 0, displayValue: false });
   const modules = parseFloat(svg.getAttribute('width')) || 100;
-  const w = Math.min(modules * 0.25, 32.5); // 32.5 mm free left of the SKU column; only very long codes shrink
+  const w = Math.min(modules * 0.25, maxW);
   svg.setAttribute('viewBox', `0 0 ${modules} 55`);
   svg.setAttribute('preserveAspectRatio', 'none');
   svg.setAttribute('shape-rendering', 'crispEdges');
   svg.setAttribute('width', `${w}mm`);
-  svg.setAttribute('height', '6.9mm');
+  svg.setAttribute('height', `${h}mm`);
   svg.removeAttribute('style');
   return { html: svg.outerHTML, w };
 }
@@ -316,11 +318,70 @@ function marcLabelsHtml(labels, { storeName = '', fields: f }) {
   </style></head><body>${rows.map((r) => `<div class="row">${r.map(label).join('')}</div>`).join('')}</body></html>`;
 }
 
-export function labelsHtml(labels, { size = '50x25', columns = 1, storeName = '', fields = {}, format } = {}) {
+/** Products in an "Accessories" category print on the 75 x 24 mm accessories label. */
+export const isAccessory = (l) => /accessor/i.test(String(l?.categoryName || ''));
+
+/*
+ * Accessories label: 75 x 24 mm, 1 across, continuous synthetic roll (no gap), direct thermal.
+ * Header: brand / company + MRP (incl. of all taxes); product name, description, batch;
+ * then a full-width Code128 barcode of the item code (SKU) with "Item Code: SKU" under it.
+ * The POS finds a product by its SKU too, so these labels scan at the counter.
+ */
+function accLabelsHtml(labels, { storeName = '', fields: f, batch = '' }) {
+  const flat = labels.flatMap((l) => Array.from({ length: l.qty }, () => l));
+  const money = (n) => (Number(n) || 0).toFixed(2);
+  const label = (l) => {
+    const code = String(l.sku || l.barcode || '');
+    const bc = marcBarcode(code, { maxW: 69, h: 8.2 }); // 3 mm quiet zone each side
+    const brand = f.showStoreName ? (storeName || l.brandName || '') : '';
+    const variant = f.showSizeColor ? [l.color, l.size].filter(Boolean).join(' / ') : '';
+    const name = f.showProductName ? [l.brandName && l.brandName !== brand ? l.brandName : '', l.productName].filter(Boolean).join(' ') : '';
+    return `<div class="lbl">
+      <div class="hd">
+        <div class="l">
+          ${brand ? `<div class="brand">${esc(brand)}</div>` : ''}
+          ${name || variant ? `<div class="name"><span class="nm">${esc(name)}</span>${variant ? `<b class="var">${esc(variant)}</b>` : ''}</div>` : ''}
+          <div class="desc">${esc(l.description || '')}</div>
+        </div>
+        <div class="r">
+          ${f.showMrp ? `<div class="mrp">MRP &#8377;${money(l.mrp)}</div><div class="tax">(Incl. of all taxes)</div>` : ''}
+          ${batch ? `<div class="batch">Batch: <b>${esc(batch)}</b></div>` : ''}
+        </div>
+      </div>
+      <div class="bc">${bc.html}</div>
+      <div class="code">Item Code: <b>${esc(code)}</b></div>
+    </div>`;
+  };
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Labels</title><style>
+    @page { size: 75mm 24mm; margin: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { font-family: Arial, Helvetica, sans-serif; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .lbl { width: 75mm; height: 24mm; padding: 1mm 2mm 0; overflow: hidden; break-after: page; page-break-after: always; }
+    .lbl:last-child { break-after: auto; page-break-after: auto; }
+    .hd { display: flex; justify-content: space-between; gap: 2mm; height: 9.6mm; border-bottom: .3mm solid #000; }
+    .l { min-width: 0; flex: 1; } .r { flex: none; text-align: right; }
+    .l > div, .r > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.12; }
+    .brand { font: 900 3.4mm/1.1 'Arial Black', Arial, sans-serif; letter-spacing: .2mm; text-transform: uppercase; }
+    .l > .name { display: flex; align-items: baseline; font-size: 2.7mm; font-weight: 700; }
+    .name .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .hd { padding-bottom: .3mm; }
+    .var { flex: none; font: 900 2.7mm/1.12 'Arial Black', Arial, sans-serif; margin-left: 1mm; }
+    .desc { font-size: 2.1mm; font-weight: 700; }
+    .mrp { font: 900 3.9mm/1.1 'Arial Black', Arial, sans-serif; }
+    .tax { font-size: 1.9mm; font-weight: 700; }
+    .batch { font-size: 2.2mm; font-weight: 700; margin-top: .3mm; }
+    .bc { display: flex; justify-content: center; margin-top: 1.1mm; }
+    .bc svg { display: block; }
+    .code { text-align: center; font: 700 2.6mm/1 Arial, sans-serif; letter-spacing: .15mm; margin-top: .5mm; white-space: nowrap; }
+    .code b { font-weight: 900; }
+  </style></head><body>${flat.map(label).join('')}</body></html>`;
+}
+
+export function labelsHtml(labels, { size = '50x25', columns = 1, storeName = '', fields = {}, format, batch = '' } = {}) {
   const s = LABEL_SIZES[size] || LABEL_SIZES['50x25'];
-  if (s.design === 'marc') {
+  if (s.design) {
     const f = { showStoreName: true, showProductName: true, showSku: true, showSizeColor: true, showMrp: true, showSellingPrice: true, ...fields };
-    return marcLabelsHtml(labels, { storeName, fields: f });
+    return s.design === 'acc' ? accLabelsHtml(labels, { storeName, fields: f, batch }) : marcLabelsHtml(labels, { storeName, fields: f });
   }
   const small = s.h < 24;
   const f = { showStoreName: true, showProductName: true, showSku: true, showSizeColor: true, showMrp: true, showSellingPrice: true, ...fields };

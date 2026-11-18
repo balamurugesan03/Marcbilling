@@ -1,4 +1,4 @@
-const { Barcode, ProductVariant, Stock } = require('../models');
+const { Barcode, Product, ProductVariant, Stock } = require('../models');
 const ApiError = require('../utils/ApiError');
 const { validateBarcode, buildBarcode, detectFormat } = require('../utils/barcode');
 const settingsService = require('./settings.service');
@@ -104,6 +104,9 @@ async function labels(req, { items }) {
   const ids = items.map((i) => i.variantId);
   const variants = await ProductVariant.find({ _id: { $in: ids }, companyId: req.companyId }).lean();
   const map = new Map(variants.map((v) => [String(v._id), v]));
+  // product description for labels that show it (accessories)
+  const products = await Product.find({ companyId: req.companyId, _id: { $in: [...new Set(variants.map((v) => String(v.productId)))] } }).select('description').lean();
+  const desc = new Map(products.map((p) => [String(p._id), p.description || '']));
   const labelsOut = [];
   for (const it of items) {
     const v = map.get(String(it.variantId));
@@ -112,6 +115,7 @@ async function labels(req, { items }) {
     labelsOut.push({
       variantId: v._id, productName: v.productName, sku: v.sku, size: v.size, color: v.color,
       mrp: v.mrp, sellingPrice: v.sellingPrice, barcode: v.barcode, format: v.barcodeFormat, qty,
+      productCode: v.productCode, categoryName: v.categoryName, brandName: v.brandName, description: desc.get(String(v.productId)) || '',
     });
     await Barcode.updateOne({ companyId: req.companyId, code: v.barcode }, { $inc: { printedCount: qty }, $set: { lastPrintedAt: new Date() } });
   }
