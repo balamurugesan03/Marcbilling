@@ -14,9 +14,9 @@ export default function BarcodePrinting() {
   const location = useLocation();
   const b = settings?.barcode || {};
   const [queue, setQueue] = useState([]);
-  // last size used on this computer, so the Zebra PC stays on the MARC design
-  const [size, setSizeState] = useState(() => (LABEL_SIZES[localStorage.getItem('labelSize')] ? localStorage.getItem('labelSize') : b.labelSize || 'MARC-2up'));
-  const setSize = (v) => { localStorage.setItem('labelSize', v); setSizeState(v); };
+  // last size used on this computer (new key: every PC starts on the 38 x 25 MARC label once)
+  const [size, setSizeState] = useState(() => (LABEL_SIZES[localStorage.getItem('labelSizeV2')] ? localStorage.getItem('labelSizeV2') : 'MARC-1up'));
+  const setSize = (v) => { localStorage.setItem('labelSizeV2', v); setSizeState(v); };
   const [columns, setColumns] = useState(b.labelColumns || 1);
   const [format, setFormat] = useState('');
   const [fields, setFields] = useState({
@@ -92,7 +92,7 @@ export default function BarcodePrinting() {
               <Toggle key={k} checked={fields[k]} onChange={(c) => setFields({ ...fields, [k]: c })} label={l} />
             ))}
           </div>
-          <div className="text-xs text-ink-500">Printer: {settings?.printer?.labelPrinterName || 'choose your label printer in the print dialog'}. In the print dialog set Margins: None, Scale: 100% (not "Fit to page") and turn off Headers and footers. In the printer driver set the paper / stock size to the label size{size === 'MARC-2up' ? ' (80 x 25 mm)' : size === ACC ? ' (75 x 24 mm, Continuous)' : LABEL_SIZES[size]?.sheet ? "" : ` (${LABEL_SIZES[size]?.w * columns + (columns - 1) * 2} x ${LABEL_SIZES[size]?.h} mm)`} with media type Gap / Label, and calibrate the gap sensor once.</div>
+          <div className="text-xs text-ink-500">Printer: {settings?.printer?.labelPrinterName || 'choose your label printer in the print dialog'}. In the print dialog set Margins: None, Scale: 100% (not "Fit to page") and turn off Headers and footers. In the printer driver set the paper / stock size to the label size{size === 'MARC-1up' ? ' (38 x 25 mm)' : size === 'MARC-2up' ? ' (80 x 25 mm)' : size === ACC ? ' (75 x 24 mm, Continuous)' : LABEL_SIZES[size]?.sheet ? "" : ` (${LABEL_SIZES[size]?.w * columns + (columns - 1) * 2} x ${LABEL_SIZES[size]?.h} mm)`} with media type Gap / Label, and calibrate the gap sensor once.</div>
           {preview && <div><div className="label">Preview</div><iframe title="preview" srcDoc={preview} className="h-40 w-full rounded-lg border border-ink-200 bg-white dark:border-ink-700" /></div>}
         </div>
       </div>

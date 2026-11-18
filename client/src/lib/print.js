@@ -245,7 +245,8 @@ export function a4InvoiceHtml(inv, { duplicate = false } = {}) {
 
 /* ---------------- Barcode labels ---------------- */
 export const LABEL_SIZES = {
-  'MARC-2up': { w: 38.5, h: 25, label: 'MARC design - 2 across (80 x 25 mm roll)', design: 'marc' },
+  'MARC-1up': { w: 38, h: 25, label: 'MARC design - 38 x 25 mm (1 across)', design: 'marc', cols: 1 },
+  'MARC-2up': { w: 38.5, h: 25, label: 'MARC design - 2 across (80 x 25 mm roll)', design: 'marc', cols: 2 },
   'ACC-75x24': { w: 75, h: 24, label: 'Accessories - 75 x 24 mm (1 across, no gap)', design: 'acc' },
   '50x25':{ w: 50, h: 25, label: '50 x 25 mm (roll)' },
   '38x25': { w: 38, h: 25, label: '38 x 25 mm (roll)' },
@@ -261,8 +262,8 @@ export const LABEL_SIZES = {
  * SKU standing on the right edge, then MRP + item name, then Our Price.
  * Bars are 0.25 mm (2 printer dots) wide so every bar lands on whole dots and scans cleanly.
  */
-const MARC_PITCH = 41; // mm from one label's left edge to the next
-const MARC_PAGE_W = 80;
+const MARC_PITCH = 41; // 2 across: mm from one label's left edge to the next
+const MARC_PAGE_W = 80; // 2 across roll; 1 across is one 38 mm label a page
 // maxW: room for the bars (MARC: 32.5 mm left of the SKU column); only very long codes shrink below 0.25 mm bars
 function marcBarcode(value, { maxW = 32.5, h = 6.9 } = {}) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -278,7 +279,9 @@ function marcBarcode(value, { maxW = 32.5, h = 6.9 } = {}) {
   return { html: svg.outerHTML, w };
 }
 
-function marcLabelsHtml(labels, { storeName = '', fields: f }) {
+function marcLabelsHtml(labels, { storeName = '', fields: f, cols = 2 }) {
+  const lw = cols === 1 ? 38 : 38.5; // label width
+  const pageW = cols === 1 ? 38 : MARC_PAGE_W;
   const flat = labels.flatMap((l) => Array.from({ length: l.qty }, () => l));
   const money = (n) => (Number(n) || 0).toFixed(2);
   const label = (l, i) => {
@@ -294,24 +297,24 @@ function marcLabelsHtml(labels, { storeName = '', fields: f }) {
     </div>`;
   };
   const rows = [];
-  for (let i = 0; i < flat.length; i += 2) rows.push(flat.slice(i, i + 2));
+  for (let i = 0; i < flat.length; i += cols) rows.push(flat.slice(i, i + cols));
   // positions are the PRN's dot coordinates / 8; text tops are its baselines minus the font's ascent
   return `<!doctype html><html><head><meta charset="utf-8"><title>Labels</title><style>
-    @page { size: ${MARC_PAGE_W}mm 25mm; margin: 0; }
+    @page { size: ${pageW}mm 25mm; margin: 0; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { font-family: Arial, Helvetica, sans-serif; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .row { position: relative; width: ${MARC_PAGE_W}mm; height: 25mm; overflow: hidden; break-after: page; page-break-after: always; }
+    .row { position: relative; width: ${pageW}mm; height: 25mm; overflow: hidden; break-after: page; page-break-after: always; }
     .row:last-child { break-after: auto; page-break-after: auto; }
-    .lbl { position: absolute; top: 0; width: 38.5mm; height: 25mm; overflow: hidden; }
+    .lbl { position: absolute; top: 0; width: ${lw}mm; height: 25mm; overflow: hidden; }
     .t { position: absolute; line-height: 1; white-space: nowrap; overflow: hidden; font-weight: 700; }
     .t span { display: inline-block; transform: scaleX(.85); transform-origin: left; }
-    .store { left: 0; width: 38.5mm; top: 1.6mm; text-align: center; font: 900 5.6mm/1 'Arial Black', Arial, sans-serif; letter-spacing: .3mm; text-transform: uppercase; text-overflow: clip; }
+    .store { left: 0; width: ${lw}mm; top: 1.6mm; text-align: center; font: 900 5.6mm/1 'Arial Black', Arial, sans-serif; letter-spacing: .3mm; text-transform: uppercase; text-overflow: clip; }
     .bc { position: absolute; top: 7.5mm; text-align: center; }
     .bc svg { display: block; }
     .code { font: 700 2.6mm/1 Arial, sans-serif; -webkit-text-stroke: .04mm #000; letter-spacing: .15mm; margin-top: .3mm; white-space: nowrap; }
     .sku { position: absolute; left: 34.3mm; top: .8mm; width: 2.6mm; height: 13.5mm; writing-mode: vertical-rl; transform: rotate(180deg); font: 700 2.6mm/1 Arial, sans-serif; white-space: nowrap; overflow: hidden; }
     .mrp { left: 1.4mm; top: 17.4mm; font-size: 3.5mm; width: 21mm; }
-    .item { left: 21.75mm; top: 17.7mm; font-size: 2.2mm; width: 16.5mm; display: flex; align-items: baseline; gap: .6mm; }
+    .item { left: 21.75mm; top: 17.7mm; font-size: 2.2mm; width: ${lw - 22.25}mm; display: flex; align-items: baseline; gap: .6mm; }
     .item .nm { display: block; transform: none; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
     .item .sz { flex: none; font: 900 2.7mm/1 'Arial Black', Arial, sans-serif; }
     .our { left: 1.25mm; top: 20.8mm; font-size: 3.65mm; font-weight: 900; width: 37mm; }
@@ -381,7 +384,7 @@ export function labelsHtml(labels, { size = '50x25', columns = 1, storeName = ''
   const s = LABEL_SIZES[size] || LABEL_SIZES['50x25'];
   if (s.design) {
     const f = { showStoreName: true, showProductName: true, showSku: true, showSizeColor: true, showMrp: true, showSellingPrice: true, ...fields };
-    return s.design === 'acc' ? accLabelsHtml(labels, { storeName, fields: f, batch }) : marcLabelsHtml(labels, { storeName, fields: f });
+    return s.design === 'acc' ? accLabelsHtml(labels, { storeName, fields: f, batch }) : marcLabelsHtml(labels, { storeName, fields: f, cols: s.cols || 2 });
   }
   const small = s.h < 24;
   const f = { showStoreName: true, showProductName: true, showSku: true, showSizeColor: true, showMrp: true, showSellingPrice: true, ...fields };
