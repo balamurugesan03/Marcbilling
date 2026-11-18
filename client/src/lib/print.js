@@ -12,6 +12,9 @@ const STORE_TAGLINE = 'the family fashion';
 const branchAddress = (b) => [b?.address?.line1, b?.address?.line2, b?.address?.city].filter(Boolean).join(', ') || STORE_ADDRESS;
 const branchPhone = (b) => b?.phone || STORE_PHONE;
 // the branch's own company name (set on the Branches page) wins, then the branch name
+// discount as a percent of the sold value (returned lines left out), e.g. "10%" / "7.5%"; '' when there is no discount
+const pctText = (disc, base) => (Number(disc) > 0 && Number(base) > 0 ? `${Number(((disc / base) * 100).toFixed(2))}%` : '');
+const soldValue = (items) => items.filter((i) => i.qty > 0).reduce((a, i) => a + i.qty * (Number(i.rate) || 0), 0);
 const branchTitle = (branch, company) => branch?.displayName || branch?.name || company?.name || 'MARC';
 
 /** Prints an HTML document through a hidden iframe (the OS print dialog selects the printer). */
@@ -145,7 +148,7 @@ export function receiptHtml(inv, { width = '80', duplicate = false } = {}) {
     </table>
     <table class="sum">
       ${row('Sub Total', m(t.subtotal))}
-      ${row('Discount', m(t.discount))}
+      ${row(`Discount${pctText(t.discount, soldValue(items)) ? ` (${pctText(t.discount, soldValue(items))})` : ''}`, m(t.discount))}
       ${row('MRP Total', m(mrpTotal))}
       ${returned ? row('Return Items', m(returned)) : ''}
       ${t.roundOff ? row('Round Off', m(t.roundOff)) : ''}
@@ -211,7 +214,7 @@ export function a4InvoiceHtml(inv, { duplicate = false } = {}) {
       <div class="box"><div class="b">Supply</div><div>Place of supply: ${esc(branch?.address?.state || '')} (${esc(branch?.stateCode || '')})</div><div>Tax type: ${sale.interState ? 'IGST (Inter-state)' : 'CGST + SGST (Intra-state)'}</div><div>Prices ${sale.taxInclusive ? 'inclusive' : 'exclusive'} of GST</div></div>
     </div>
     <table><thead><tr><th>#</th><th>Product</th><th>SKU</th>${settings?.invoice?.showHsn ? '<th>HSN</th>' : ''}<th>Size</th><th>Color</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Disc</th><th class="r">GST%</th><th class="r">Taxable</th><th class="r">Amount</th></tr></thead><tbody>
-      ${items.map((i, n) => `<tr><td>${n + 1}</td><td>${esc(i.productName)}</td><td>${esc(i.sku)}</td>${settings?.invoice?.showHsn ? `<td>${esc(i.hsnCode || '')}</td>` : ''}<td>${esc(i.size || '')}</td><td>${esc(i.color || '')}</td><td class="r">${i.qty}</td><td class="r">${m(i.rate)}</td><td class="r">${m(i.discount)}</td><td class="r">${i.gstRate}</td><td class="r">${m(i.taxable)}</td><td class="r">${m(i.amount)}</td></tr>`).join('')}
+      ${items.map((i, n) => `<tr><td>${n + 1}</td><td>${esc(i.productName)}</td><td>${esc(i.sku)}</td>${settings?.invoice?.showHsn ? `<td>${esc(i.hsnCode || '')}</td>` : ''}<td>${esc(i.size || '')}</td><td>${esc(i.color || '')}</td><td class="r">${i.qty}</td><td class="r">${m(i.rate)}</td><td class="r">${m(i.discount)}${i.qty > 0 && pctText(i.discount, i.qty * i.rate) ? `<div style="font-size:10px">(${pctText(i.discount, i.qty * i.rate)})</div>` : ''}</td><td class="r">${i.gstRate}</td><td class="r">${m(i.taxable)}</td><td class="r">${m(i.amount)}</td></tr>`).join('')}
     </tbody></table>
     <div class="grid" style="grid-template-columns: 1.3fr 1fr">
       <div>
@@ -223,7 +226,7 @@ export function a4InvoiceHtml(inv, { duplicate = false } = {}) {
       </div>
       <table class="tot">
         <tr><td>Subtotal</td><td class="r">${m(t.subtotal)}</td></tr>
-        <tr><td>Discount</td><td class="r">-${m(t.discount)}</td></tr>
+        <tr><td>Discount${pctText(t.discount, soldValue(items)) ? ` (${pctText(t.discount, soldValue(items))})` : ''}</td><td class="r">-${m(t.discount)}</td></tr>
         <tr><td>Taxable Value</td><td class="r">${m(t.taxable)}</td></tr>
         <tr><td>CGST</td><td class="r">${m(t.cgst)}</td></tr>
         <tr><td>SGST</td><td class="r">${m(t.sgst)}</td></tr>
