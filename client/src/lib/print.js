@@ -282,6 +282,9 @@ function marcBarcode(value, { maxW = 32.5, h = 6.9 } = {}) {
 function marcLabelsHtml(labels, { storeName = '', fields: f, cols = 2 }) {
   const lw = cols === 1 ? 38 : 38.5; // label width
   const pageW = cols === 1 ? 38 : MARC_PAGE_W;
+  // store name: a little smaller on the 2-across roll; top keeps its baseline where the PRN has it
+  const storeFs = cols === 1 ? 5.6 : 4.8;
+  const storeTop = (6.63 - 0.895 * storeFs).toFixed(2);
   const flat = labels.flatMap((l) => Array.from({ length: l.qty }, () => l));
   const money = (n) => (Number(n) || 0).toFixed(2);
   const label = (l, i) => {
@@ -308,7 +311,7 @@ function marcLabelsHtml(labels, { storeName = '', fields: f, cols = 2 }) {
     .lbl { position: absolute; top: 0; width: ${lw}mm; height: 25mm; overflow: hidden; }
     .t { position: absolute; line-height: 1; white-space: nowrap; overflow: hidden; font-weight: 700; }
     .t span { display: inline-block; transform: scaleX(.85); transform-origin: left; }
-    .store { left: 0; width: ${lw}mm; top: 1.6mm; text-align: center; font: 900 5.6mm/1 'Arial Black', Arial, sans-serif; letter-spacing: .3mm; text-transform: uppercase; text-overflow: clip; }
+    .store { left: 0; width: ${lw}mm; top: ${storeTop}mm; text-align: center; font: 900 ${storeFs}mm/1 'Arial Black', Arial, sans-serif; letter-spacing: .3mm; text-transform: uppercase; text-overflow: clip; }
     .bc { position: absolute; top: 7.5mm; text-align: center; }
     .bc svg { display: block; }
     .code { font: 700 2.6mm/1 Arial, sans-serif; -webkit-text-stroke: .04mm #000; letter-spacing: .15mm; margin-top: .3mm; white-space: nowrap; }

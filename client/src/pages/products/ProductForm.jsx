@@ -10,7 +10,17 @@ import { inr } from '../../lib/format';
 
 const GENDERS = ['Men', 'Women', 'Boys', 'Girls', 'Kids', 'Unisex'];
 const SEASONS = ['All Season', 'Summer', 'Winter', 'Monsoon', 'Festive', 'Wedding'];
-const SIZE_PRESETS = { Apparel: 'S, M, L, XL, XXL', Numeric: '28, 30, 32, 34, 36', Shirts: '38, 40, 42, 44', Kids: '2-3Y, 4-5Y, 6-7Y, 8-9Y', Footwear: '6, 7, 8, 9, 10', Free: 'Free' };
+// full ranges, smallest to largest: pick a preset, then delete the sizes a product does not come in
+const SIZE_PRESETS = {
+  'Men / Unisex (XS - 6XL)': 'XS, S, M, L, XL, XXL, 3XL, 4XL, 5XL, 6XL',
+  'Ladies (XS - 6XL)': 'XS, S, M, L, XL, XXL, 3XL, 4XL, 5XL, 6XL',
+  'Ladies numeric (28 - 50)': '28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50',
+  'Kids (0-6M - 15-16Y)': '0-6M, 6-12M, 12-18M, 18-24M, 2-3Y, 3-4Y, 4-5Y, 5-6Y, 6-7Y, 7-8Y, 8-9Y, 9-10Y, 10-11Y, 11-12Y, 12-13Y, 13-14Y, 14-15Y, 15-16Y',
+  'Pants waist (26 - 44)': '26, 28, 30, 32, 34, 36, 38, 40, 42, 44',
+  'Shirts (36 - 48)': '36, 38, 40, 42, 44, 46, 48',
+  'Footwear (UK 4 - 12)': '4, 5, 6, 7, 8, 9, 10, 11, 12',
+  Free: 'Free',
+};
 const split = (s) => s.split(',').map((x) => x.trim()).filter(Boolean);
 const empty = {
   productCode: '', name: '', categoryId: '', subCategoryId: '', brandId: '', gender: 'Unisex', season: 'All Season', hsnCode: '', gstRate: 5,
@@ -215,8 +225,8 @@ export default function ProductForm() {
       <div className="card card-pad mt-4">
         <div className="mb-3 flex flex-wrap items-end gap-3">
           <div className="section-title mr-auto">Variants ({variants.length}) {errors.variants && <span className="ml-2 text-xs font-normal text-rose-600">{errors.variants}</span>}</div>
-          <label className="w-64"><span className="label">Sizes (comma separated)</span><input className="input" value={sizes} onChange={(e) => setSizes(e.target.value)} /></label>
-          <select className="input w-32" value="" onChange={(e) => e.target.value && setSizes(SIZE_PRESETS[e.target.value])}><option value="">Presets…</option>{Object.keys(SIZE_PRESETS).map((k) => <option key={k}>{k}</option>)}</select>
+          <label className="w-96"><span className="label">Sizes (comma separated)</span><input className="input" value={sizes} onChange={(e) => setSizes(e.target.value)} /></label>
+          <select className="input w-56" value="" onChange={(e) => e.target.value && setSizes(SIZE_PRESETS[e.target.value])}><option value="">Presets…</option>{Object.keys(SIZE_PRESETS).map((k) => <option key={k}>{k}</option>)}</select>
           <label className="w-64"><span className="label">Colours (comma separated)</span><input className="input" value={colors} onChange={(e) => setColors(e.target.value)} placeholder="Black, White, Navy" /></label>
           <button type="button" className="btn-secondary" onClick={generate}><Wand2 className="h-4 w-4" /> Generate</button>
           <button type="button" className="btn-ghost" onClick={() => setVariants([...variants, { size: '', color: '', barcode: '', openingStock: 0 }])}>+ Row</button>
