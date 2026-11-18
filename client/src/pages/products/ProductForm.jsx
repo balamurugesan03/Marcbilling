@@ -89,19 +89,21 @@ export default function ProductForm() {
   }, [f.categoryId]);
 
   const set = (k) => (e) => setF({ ...f, [k]: e?.target ? e.target.value : e });
+  // Accessories: no sizes (the size box and column are hidden, Generate makes one variant per colour)
+  const isAcc = /accessor/i.test(cats.find((c) => c._id === f.categoryId)?.name || '');
   const onCategory = (e) => {
     const cat = cats.find((c) => c._id === e.target.value);
     setF({ ...f, categoryId: e.target.value, subCategoryId: '', gstRate: cat?.defaultGstRate ?? f.gstRate, hsnCode: f.hsnCode || cat?.defaultHsnCode || '' });
   };
   const generate = () => {
-    const S = split(sizes);
+    const S = isAcc ? [] : split(sizes); // accessories have no sizes
     const C = split(colors);
-    if (!S.length && !C.length) return toast.error('Enter sizes and/or colours');
+    if (!S.length && !C.length && !isAcc) return toast.error('Enter sizes and/or colours'); // accessory with no colour: one variant
     const combos = (C.length ? C : ['']).flatMap((color) => (S.length ? S : ['']).map((size) => ({ color, size })));
     const key = (v) => `${(v.color || '').toLowerCase()}|${(v.size || '').toLowerCase()}`;
     const existing = new Set(variants.map(key));
     const added = combos.filter((c) => !existing.has(key(c))).map((c) => ({ ...c, barcode: '', openingStock: 0 }));
-    setVariants([...variants.filter((v) => v._id || v.barcode || v.color || v.size), ...added]);
+    setVariants([...variants.filter((v) => isAcc || v._id || v.barcode || v.color || v.size), ...added]);
     toast.success(`${added.length} variant(s) added`);
     return null;
   };
@@ -225,20 +227,21 @@ export default function ProductForm() {
       <div className="card card-pad mt-4">
         <div className="mb-3 flex flex-wrap items-end gap-3">
           <div className="section-title mr-auto">Variants ({variants.length}) {errors.variants && <span className="ml-2 text-xs font-normal text-rose-600">{errors.variants}</span>}</div>
-          <label className="w-96"><span className="label">Sizes (comma separated)</span><input className="input" value={sizes} onChange={(e) => setSizes(e.target.value)} /></label>
-          <select className="input w-56" value="" onChange={(e) => e.target.value && setSizes(SIZE_PRESETS[e.target.value])}><option value="">Presets…</option>{Object.keys(SIZE_PRESETS).map((k) => <option key={k}>{k}</option>)}</select>
-          <label className="w-64"><span className="label">Colours (comma separated)</span><input className="input" value={colors} onChange={(e) => setColors(e.target.value)} placeholder="Black, White, Navy" /></label>
+          {!isAcc && <label className="w-96"><span className="label">Sizes (comma separated)</span><input className="input" value={sizes} onChange={(e) => setSizes(e.target.value)} /></label>}
+          {!isAcc && <select className="input w-56" value="" onChange={(e) => e.target.value && setSizes(SIZE_PRESETS[e.target.value])}><option value="">Presets…</option>{Object.keys(SIZE_PRESETS).map((k) => <option key={k}>{k}</option>)}</select>}
+          {isAcc && <div className="max-w-xs text-xs text-ink-500">Accessories have no sizes. Enter colours (optional) and click Generate: one variant per colour, or one variant if blank.</div>}
+          <label className="w-64"><span className="label">Colours {isAcc ? "(optional)" : "(comma separated)"}</span><input className="input" value={colors} onChange={(e) => setColors(e.target.value)} placeholder="Black, White, Navy" /></label>
           <button type="button" className="btn-secondary" onClick={generate}><Wand2 className="h-4 w-4" /> Generate</button>
           <button type="button" className="btn-ghost" onClick={() => setVariants([...variants, { size: '', color: '', barcode: '', openingStock: 0 }])}>+ Row</button>
         </div>
         <div className="table-wrap">
           <table className="tbl">
-            <thead><tr><th>Colour</th><th>Size</th><th>SKU</th><th>Barcode</th><th className="num">Purchase</th><th className="num">MRP</th><th className="num">Selling</th>{id ? <th className="num">Stock</th> : <th className="num">Opening stock</th>}<th>Reorder</th><th>Status</th><th /></tr></thead>
+            <thead><tr><th>Colour</th>{!isAcc && <th>Size</th>}<th>SKU</th><th>Barcode</th><th className="num">Purchase</th><th className="num">MRP</th><th className="num">Selling</th>{id ? <th className="num">Stock</th> : <th className="num">Opening stock</th>}<th>Reorder</th><th>Status</th><th /></tr></thead>
             <tbody>
               {variants.map((v, i) => (
                 <tr key={v._id || i}>
                   <td><input className="input input-sm w-28" value={v.color || ''} onChange={(e) => upd(i, 'color', e.target.value)} /></td>
-                  <td><input className="input input-sm w-20" value={v.size || ''} onChange={(e) => upd(i, 'size', e.target.value)} /></td>
+                  {!isAcc && <td><input className="input input-sm w-20" value={v.size || ''} onChange={(e) => upd(i, 'size', e.target.value)} /></td>}
                   <td><input className="input input-sm w-36 font-mono" placeholder="Auto" value={v.sku || ''} onChange={(e) => upd(i, 'sku', e.target.value.toUpperCase())} /></td>
                   <td><BarcodeCell value={v.barcode} format={v.barcodeFormat} variantId={v._id} onChange={(val) => upd(i, 'barcode', val)} /></td>
                   <td className="num"><input type="number" className="input input-sm w-20 text-right" placeholder={f.purchasePrice} value={v.purchasePrice ?? ''} onChange={(e) => upd(i, 'purchasePrice', e.target.value)} /></td>

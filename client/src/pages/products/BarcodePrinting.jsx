@@ -14,9 +14,9 @@ export default function BarcodePrinting() {
   const location = useLocation();
   const b = settings?.barcode || {};
   const [queue, setQueue] = useState([]);
-  // last size used on this computer (new key: every PC starts on the 38 x 25 MARC label once)
-  const [size, setSizeState] = useState(() => (LABEL_SIZES[localStorage.getItem('labelSizeV2')] ? localStorage.getItem('labelSizeV2') : 'MARC-1up'));
-  const setSize = (v) => { localStorage.setItem('labelSizeV2', v); setSizeState(v); };
+  // last size used on this computer (new key: every PC starts once on the 2-across MARC roll; accessories always 75 x 24)
+  const [size, setSizeState] = useState(() => (LABEL_SIZES[localStorage.getItem('labelSizeV3')] ? localStorage.getItem('labelSizeV3') : 'MARC-2up'));
+  const setSize = (v) => { localStorage.setItem('labelSizeV3', v); setSizeState(v); };
   const [columns, setColumns] = useState(b.labelColumns || 1);
   const [format, setFormat] = useState('');
   const [fields, setFields] = useState({
