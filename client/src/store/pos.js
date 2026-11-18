@@ -27,6 +27,7 @@ export const usePOS = create(persist((set, get) => ({
   items: [],
   customer: null,
   billDiscount: 0,
+  withGst: true, // POS switch: bill with / without GST (stays as set until switched back)
   selected: 0,
   heldBillId: null,
   lastSaleId: null,
@@ -109,6 +110,7 @@ export const usePOS = create(persist((set, get) => ({
   setCustomer: (customer) => set({ customer }),
   setBillDiscount: (billDiscount) => set({ billDiscount: Number(billDiscount) || 0 }),
   load: ({ items, customer, billDiscount, heldBillId }) => set({ items, customer, billDiscount: billDiscount || 0, heldBillId, selected: 0 }),
+  setWithGst: (withGst) => set({ withGst: Boolean(withGst) }),
   clear: () => set({ items: [], customer: null, billDiscount: 0, selected: 0, heldBillId: null }),
   setLastSale: (id) => set({ lastSaleId: id }),
 }), { name: 'fpos-cart' }));

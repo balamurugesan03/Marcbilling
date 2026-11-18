@@ -514,7 +514,7 @@ export default function POS() {
   const { user, settings, branchId, can } = useAuth();
   const branch = useAuth((s) => s.currentBranch());
   const pos = usePOS();
-  const { items, customer, billDiscount, selected } = pos;
+  const { items, customer, billDiscount, selected, withGst } = pos;
   const [code, setCode] = useState('');
   const [scanBusy, setScanBusy] = useState(false);
   const [modal, setModal] = useState(null); // search | customer | newCustomer | recall | pay | qty | disc | billDisc | rate | help
@@ -530,7 +530,7 @@ export default function POS() {
   const allowNegative = settings?.stock?.allowNegativeStock;
   const maxPct = user?.role?.maxDiscountPercent ?? 0;
   const interState = isInterState(settings?.tax, branch, customer);
-  const { lines, totals } = useMemo(() => computeTotals(items, { taxInclusive: settings?.tax?.taxInclusive ?? true, interState, billDiscount }), [items, settings, interState, billDiscount]);
+  const { lines, totals } = useMemo(() => computeTotals(withGst ? items : items.map((i) => (i.returnRef ? i : { ...i, gstRate: 0 })), { taxInclusive: settings?.tax?.taxInclusive ?? true, interState, billDiscount }), [items, settings, interState, billDiscount, withGst]);
   const sel = items[selected];
 
   const focusScan = useCallback(() => setTimeout(() => scanRef.current?.focus(), 30), []);
@@ -644,7 +644,7 @@ export default function POS() {
     setPaying(true);
     try {
       const inv = await post('/sales', {
-        customerId: customer?._id, billDiscount, payments, refundMode, heldBillId: pos.heldBillId || undefined,
+        customerId: customer?._id, billDiscount, payments, refundMode, heldBillId: pos.heldBillId || undefined, withGst,
         items: items.map((i) => ({ variantId: i.variantId, qty: i.qty, rate: i.rate, discount: i.discount || undefined, discountPercent: i.discountPercent || undefined, saleItemId: i.returnRef?.saleItemId })),
       });
       pos.clear();
@@ -860,6 +860,15 @@ export default function POS() {
           </div>
 
           <div className="card flex flex-1 flex-col p-4">
+            <label className={clsx('mb-3 flex cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold', withGst ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300')}>
+              <span>{withGst ? 'With GST' : 'Without GST'}</span>
+              <span className="flex items-center gap-2 text-xs font-normal">{withGst ? 'ON' : 'OFF'}
+                <button type="button" role="switch" aria-checked={withGst} aria-label="Bill with GST" onClick={() => pos.setWithGst(!withGst)}
+                  className={clsx('relative h-6 w-11 rounded-full transition', withGst ? 'bg-emerald-500' : 'bg-ink-300 dark:bg-ink-600')}>
+                  <span className={clsx('absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all', withGst ? 'left-[22px]' : 'left-0.5')} />
+                </button>
+              </span>
+            </label>
             <dl className="space-y-1.5 text-sm">
               <div className="flex justify-between"><dt className="text-ink-500">Subtotal</dt><dd className="tabular-nums">{inr(totals.subtotal)}</dd></div>
               <div className="flex justify-between">
@@ -883,7 +892,7 @@ export default function POS() {
             <div className="mt-3 rounded-xl bg-ink-900 p-4 text-white dark:bg-black/40">
               <div className="text-xs uppercase tracking-widest text-ink-400">{totals.grandTotal < 0 ? 'Refund to customer' : 'Grand Total'}</div>
               <div className={clsx('text-4xl font-extrabold tabular-nums', totals.grandTotal < 0 && 'text-rose-300')}>{inr(Math.abs(totals.grandTotal))}</div>
-              {settings?.tax?.taxInclusive && <div className="text-[11px] text-ink-400">Prices inclusive of GST</div>}
+              {!withGst ? <div className="text-[11px] font-semibold text-amber-300">Without GST</div> : settings?.tax?.taxInclusive && <div className="text-[11px] text-ink-400">Prices inclusive of GST</div>}
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2">
               <button type="button" className="btn-secondary" onClick={editBillDisc}><BadgePercent className="h-4 w-4" /> Bill disc <Kbd>B</Kbd></button>

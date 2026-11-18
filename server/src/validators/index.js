@@ -93,7 +93,7 @@ const saleQty = z.coerce.number().int('Quantity must be a whole number').min(-10
 const billItem = saleItem.extend({ qty: saleQty, saleItemId: optId });
 const sale = {
   create: z.object({
-    customerId: optId, items: z.array(billItem).min(1, 'Add at least one item').max(500), billDiscount: money.optional(), payments, notes: optStr(500), heldBillId: optId,
+    customerId: optId, items: z.array(billItem).min(1, 'Add at least one item').max(500), billDiscount: money.optional(), payments, notes: optStr(500), heldBillId: optId, withGst: z.boolean().optional(),
     refundMode: z.enum(['cash', 'card', 'upi', 'bank', 'store_credit']).optional(), // when returns make the bill total negative
   }),
   edit: z.object({ customerId: z.union([id, z.literal(''), z.null()]).optional(), notes: optStr(500), payments: payments.optional() }),

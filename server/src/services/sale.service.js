@@ -15,7 +15,7 @@ const MONEY_MODES = ['cash', 'card', 'upi', 'bank'];
  * Validates and prices the cart server-side (never trusts client totals) and enforces
  * price-change / discount permissions.
  */
-async function priceCart(req, session, { items, billDiscount = 0, customer, branch, settings, allowReturns = false, origItems = new Map() }) {
+async function priceCart(req, session, { items, billDiscount = 0, customer, branch, settings, allowReturns = false, origItems = new Map(), withGst = true }) {
   if (!items?.length) throw ApiError.badRequest('Add at least one item to the bill');
   const ids = [...new Set(items.map((i) => String(i.variantId)))];
   const variants = await ProductVariant.find({ _id: { $in: ids }, companyId: req.companyId }).session(session).lean();
@@ -57,7 +57,7 @@ async function priceCart(req, session, { items, billDiscount = 0, customer, bran
     if (discount < 0 || discountPercent < 0 || discountPercent > 100) throw ApiError.badRequest(`Invalid discount for ${v.sku}`);
     return {
       variantId: v._id, productId: v.productId, productName: v.productName, sku: v.sku, barcode: v.barcode, size: v.size, color: v.color,
-      hsnCode: v.hsnCode, qty, rate, discount, discountPercent, gstRate: v.gstRate, mrp: v.mrp, originalRate: v.sellingPrice,
+      hsnCode: v.hsnCode, qty, rate, discount, discountPercent, gstRate: withGst ? v.gstRate : 0, mrp: v.mrp, originalRate: v.sellingPrice,
       categoryId: v.categoryId, categoryName: v.categoryName, brandId: v.brandId, brandName: v.brandName, purchasePrice: v.purchasePrice,
     };
   });
@@ -220,7 +220,9 @@ async function createSaleInternal(session, req, data, { saleType = 'sale', inter
   if (data.customerId && !customer) throw ApiError.badRequest('Customer not found');
 
   const origItems = await loadReturnedFromOldBills(session, req, data.items, settings, saleType);
-  const { lines, totals, interState } = await priceCart(req, session, { items: data.items, billDiscount: data.billDiscount, customer, branch, settings, allowReturns: saleType === 'sale', origItems });
+  // "without GST" bill: sold items carry no GST (items returned from an earlier bill keep that bill's GST)
+  const withGst = data.withGst !== false;
+  const { lines, totals, interState } = await priceCart(req, session, { items: data.items, billDiscount: data.billDiscount, customer, branch, settings, allowReturns: saleType === 'sale', origItems, withGst });
   const pay = totals.grandTotal < 0
     ? settleRefund({ refundMode: data.refundMode, grandTotal: totals.grandTotal, customer, settings })
     : settlePayments({ payments: data.payments, grandTotal: totals.grandTotal, customer, settings, internalCredit });
@@ -235,7 +237,7 @@ async function createSaleInternal(session, req, data, { saleType = 'sale', inter
     companyId: req.companyId, branchId, invoiceNumber, invoiceDate: new Date(), saleType, exchangeId,
     customerId: customer?._id,
     customer: customer ? { name: customer.name, mobile: customer.mobile, gstNumber: customer.gstNumber, address: customer.address } : undefined,
-    cashierId: req.user._id, cashierName: req.user.name, itemCount: lines.length, totals, interState, taxInclusive: settings.tax.taxInclusive,
+    cashierId: req.user._id, cashierName: req.user.name, itemCount: lines.length, totals, interState, taxInclusive: settings.tax.taxInclusive, withGst,
     payments: pay.lines, paidAmount: round2(totals.grandTotal - pay.credit), creditAmount: pay.credit,
     tenderedAmount: pay.tendered, changeReturned: pay.change, costTotal, notes: data.notes, cashSessionId,
   }], { session });

@@ -16,6 +16,7 @@ const saleSchema = new Schema({
   totals: { type: totalsSchema, default: () => ({}) },
   interState: { type: Boolean, default: false },
   taxInclusive: { type: Boolean, default: true },
+  withGst: { type: Boolean, default: true }, // false = billed "without GST" from the POS switch: no tax on the sold items
   payments: [paymentLineSchema],
   paidAmount: { type: Number, default: 0 }, // excluding credit
   creditAmount: { type: Number, default: 0 }, // on-account (customer outstanding)

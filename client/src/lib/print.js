@@ -81,7 +81,8 @@ export function receiptHtml(inv, { width = '80', duplicate = false } = {}) {
   const w = width === '58' ? 58 : 80;
   const font = w === 58 ? 10.5 : 12;
   const t = sale.totals;
-  const gstin = branch?.gstin || company?.gstin;
+  const noGst = sale.withGst === false; // billed "without GST": no GSTIN / GST details
+  const gstin = noGst ? '' : branch?.gstin || company?.gstin;
   const mrpTotal = items.reduce((a, i) => a + (Number(i.mrp) || Number(i.rate) || 0) * i.qty, 0);
   const returned = items.filter((i) => i.qty < 0).reduce((a, i) => a + (Number(i.amount) || 0), 0); // minus value
   const received = sale.payments.reduce((a, p) => a + (Number(p.amount) || 0), 0) + (Number(sale.changeReturned) || 0);
@@ -154,12 +155,12 @@ export function receiptHtml(inv, { width = '80', duplicate = false } = {}) {
       ${t.roundOff ? row('Round Off', m(t.roundOff)) : ''}
       ${t.grandTotal < 0 ? row('Refund', `₹${m(-t.grandTotal)}`, 'total') : row('Total', `₹${m(t.grandTotal)}`, 'total')}
     </table>
-    <table class="box gst">
+    ${noGst ? '' : `<table class="box gst">
       <tr class="h"><td colspan="2">GST Details</td></tr>
       ${gst.map((g) => `${row(`Amt (${g.r}%)`, m(g.taxable))}${g.r ? (sale.interState || g.igst
         ? row(`IGST (${g.r}%)`, m(g.igst))
         : `${row(`CGST (${g.r / 2}%)`, m(g.cgst))}${row(`SGST (${g.r / 2}%)`, m(g.sgst))}`) : ''}`).join('')}
-    </table>
+    </table>`}
     <table class="foot">
       ${policy.map((p) => `<tr><td colspan="2" class="b">${esc(p)}</td></tr>`).join('')}
       ${sale.payments.filter((p) => Number(p.amount)).map((p) => row(`${p.amount < 0 ? 'Refund by' : 'Paid by'} ${esc(BILL_MODE_NAMES[p.mode] || p.mode)}${p.reference ? ` (${esc(p.reference)})` : ''}`, m(Math.abs(p.amount)))).join('')}
@@ -197,10 +198,10 @@ export function a4InvoiceHtml(inv, { duplicate = false } = {}) {
         ${logo ? `<div class="b" style="font-size:16px">${esc(branchTitle(branch, company))}</div>` : ''}
         <div class="muted">${esc(branchAddress(branch))}</div>
         <div class="muted">Phone: ${esc(branchPhone(branch))} ${company?.email ? `· ${esc(company.email)}` : ''}</div>
-        <div><b>GSTIN:</b> ${esc(branch?.gstin || company?.gstin || '-')}</div>
+        ${sale.withGst === false ? '' : `<div><b>GSTIN:</b> ${esc(branch?.gstin || company?.gstin || '-')}</div>`}
       </div>
       <div class="r">
-        <div class="title">${esc(settings?.invoice?.title || 'TAX INVOICE')}</div>
+        <div class="title">${sale.withGst === false ? 'INVOICE' : esc(settings?.invoice?.title || 'TAX INVOICE')}</div>
         ${duplicate ? '<div class="dup">DUPLICATE</div>' : '<div class="muted">Original for Recipient</div>'}
         <div style="margin-top:6px"><b>Invoice No:</b> ${esc(sale.invoiceNumber)}</div>
         <div><b>Date:</b> ${esc(fdatetime(sale.createdAt))}</div>
