@@ -281,13 +281,13 @@ function marcLabelsHtml(labels, { storeName = '', fields: f }) {
   const money = (n) => (Number(n) || 0).toFixed(2);
   const label = (l, i) => {
     const bc = marcBarcode(l.barcode);
-    const name = [l.productName, f.showSizeColor && l.size].filter(Boolean).join(' ');
+    const size = f.showSizeColor && l.size ? String(l.size) : '';
     return `<div class="lbl" style="left:${i * MARC_PITCH}mm">
       ${f.showStoreName && storeName ? `<div class="t store">${esc(storeName)}</div>` : ''}
       <div class="bc" style="left:${1.25 + (32.75 - bc.w) / 2}mm;width:${bc.w}mm">${bc.html}<div class="code">${esc(l.barcode)}</div></div>
       ${f.showSku && l.sku ? `<div class="sku" style="font-size:${Math.min(2.6, 13.5 / (String(l.sku).length * 0.62)).toFixed(2)}mm">${esc(l.sku)}</div>` : ''}
       ${f.showMrp ? `<div class="t mrp"><span>MRP : ${money(l.mrp)}</span></div>` : ''}
-      ${f.showProductName && name ? `<div class="t item">${esc(name)}</div>` : ''}
+      ${f.showProductName && (l.productName || size) ? `<div class="t item"><span class="nm">${esc(l.productName)}</span>${size ? `<b class="sz">${esc(size)}</b>` : ''}</div>` : ''}
       ${f.showSellingPrice ? `<div class="t our"><span>Our Price : ${money(l.sellingPrice)}</span></div>` : ''}
     </div>`;
   };
@@ -306,10 +306,12 @@ function marcLabelsHtml(labels, { storeName = '', fields: f }) {
     .store { left: 0; width: 38.5mm; top: 1.6mm; text-align: center; font: 900 5.6mm/1 'Arial Black', Arial, sans-serif; letter-spacing: .3mm; text-transform: uppercase; text-overflow: clip; }
     .bc { position: absolute; top: 7.5mm; text-align: center; }
     .bc svg { display: block; }
-    .code { font: 700 2.6mm/1 Arial, sans-serif; letter-spacing: .15mm; margin-top: .3mm; white-space: nowrap; }
+    .code { font: 700 2.6mm/1 Arial, sans-serif; -webkit-text-stroke: .04mm #000; letter-spacing: .15mm; margin-top: .3mm; white-space: nowrap; }
     .sku { position: absolute; left: 34.3mm; top: .8mm; width: 2.6mm; height: 13.5mm; writing-mode: vertical-rl; transform: rotate(180deg); font: 700 2.6mm/1 Arial, sans-serif; white-space: nowrap; overflow: hidden; }
     .mrp { left: 1.4mm; top: 17.4mm; font-size: 3.5mm; width: 21mm; }
-    .item { left: 21.75mm; top: 18.25mm; font-size: 2.2mm; width: 16.5mm; text-overflow: ellipsis; }
+    .item { left: 21.75mm; top: 17.7mm; font-size: 2.2mm; width: 16.5mm; display: flex; align-items: baseline; gap: .6mm; }
+    .item .nm { display: block; transform: none; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    .item .sz { flex: none; font: 900 2.7mm/1 'Arial Black', Arial, sans-serif; }
     .our { left: 1.25mm; top: 20.8mm; font-size: 3.65mm; font-weight: 900; width: 37mm; }
   </style></head><body>${rows.map((r) => `<div class="row">${r.map(label).join('')}</div>`).join('')}</body></html>`;
 }
