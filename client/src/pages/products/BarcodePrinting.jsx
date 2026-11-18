@@ -36,7 +36,7 @@ export default function BarcodePrinting() {
   const [batch, setBatch] = useState('');
   const total = queue.reduce((a, q) => a + (Number(q.qty) || 0), 0);
   // accessories always print on their own 75 x 24 mm roll, whatever size is chosen for the rest: 2 across by default
-  const [ACC, setAccState] = useState(() => (localStorage.getItem('accLabelSize') === 'ACC-75x24' ? 'ACC-75x24' : 'ACC-2up'));
+  const [ACC, setAccState] = useState(() => { const v = localStorage.getItem('accLabelSize'); return LABEL_SIZES[v]?.design === 'acc' ? v : 'ACC-LR'; }); // default: 3-column roll, left + right
   const setAcc = (v) => { localStorage.setItem('accLabelSize', v); setAccState(v); };
   const isAccSize = LABEL_SIZES[size]?.design === 'acc';
   const hasAcc = isAccSize || queue.some(isAccessory);
@@ -88,7 +88,7 @@ export default function BarcodePrinting() {
           {hasAcc && (
             <div className="space-y-2 rounded-lg border border-ink-200 p-3 dark:border-ink-700">
               <div className="text-xs text-ink-500">Accessories print the <b>QR label</b> (brand, QR code, product code, name, MRP, Net Rs) on the <b>75 x 24 mm</b> roll. QR = product barcode, scans at the POS. Driver paper 75 x 24 mm, media type <b>Continuous</b> (no gap).</div>
-              {!isAccSize && <label className="block"><span className="label">Accessories label</span><select className="input" value={ACC} onChange={(e) => setAcc(e.target.value)}><option value="ACC-2up">2 across (small font)</option><option value="ACC-75x24">1 across (big font)</option></select></label>}
+              {!isAccSize && <label className="block"><span className="label">Accessories label</span><select className="input" value={ACC} onChange={(e) => setAcc(e.target.value)}><option value="ACC-LR">3-column roll: left + right only (centre blank)</option><option value="ACC-2up">2 across, 37.5 mm each</option><option value="ACC-75x24">1 across, 75 mm</option></select></label>}
             </div>
           )}
           <div className="space-y-2">

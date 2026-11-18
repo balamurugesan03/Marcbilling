@@ -253,8 +253,10 @@ export function a4InvoiceHtml(inv, { duplicate = false } = {}) {
 export const LABEL_SIZES = {
   'MARC-1up': { w: 38, h: 25, label: 'MARC design - 38 x 25 mm (1 across)', design: 'marc', cols: 1 },
   'MARC-2up': { w: 38.5, h: 25, label: 'MARC design - 2 across (80 x 25 mm roll)', design: 'marc', cols: 2 },
-  'ACC-2up': { w: 37.5, h: 24, label: 'Accessories - 2 across on 75 x 24 mm (no gap)', design: 'acc', cols: 2 },
-  'ACC-75x24': { w: 75, h: 24, label: 'Accessories - 75 x 24 mm (1 across, no gap)', design: 'acc', cols: 1 },
+  // accessories, 75 x 24 mm roll; slots = left edge of each sticker printed (mm)
+  'ACC-LR': { w: 25, h: 24, label: 'Accessories - 3-column roll (3 x 25 mm): left + right only, centre blank', design: 'acc', slots: [0, 50] },
+  'ACC-2up': { w: 37.5, h: 24, label: 'Accessories - 2 across on 75 x 24 mm (no gap)', design: 'acc', slots: [0, 37.5] },
+  'ACC-75x24': { w: 75, h: 24, label: 'Accessories - 75 x 24 mm (1 across, no gap)', design: 'acc', slots: [0] },
   '50x25':{ w: 50, h: 25, label: '50 x 25 mm (roll)' },
   '38x25': { w: 38, h: 25, label: '38 x 25 mm (roll)' },
   '40x30': { w: 40, h: 30, label: '40 x 30 mm (roll)' },
@@ -355,77 +357,82 @@ function qrSvg(text, sizeMm) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${total}" width="${sizeMm}mm" height="${sizeMm}mm" shape-rendering="crispEdges"><rect width="${total}" height="${total}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
 }
 
-function accLabelsHtml(labels, { storeName = '', fields: f, cols = 1 }) {
-  // Fixed grid (mm), the same margin M on all four sides; every box clips its own text so nothing leaves the label.
-  const two = cols === 2;
-  const W = two ? 37.5 : 75; // label width; height is always 24
-  const M = 1.2; // margin, all four sides
-  const G = {
-    brandTop: M, brandH: 3.8, // brand row, centred; ends exactly where the QR starts
-    qrTop: 5.0, qr: 10.8, // QR square incl. its quiet zone
-    mrpTop: 16.5, netTop: 19.5, // price rows
-  };
-  const gap = two ? 1.2 : 1.8; // QR -> text
+function accLabelsHtml(labels, { storeName = '', fields: f, slots = [0], w = 75 }) {
+  // Fixed grid (mm), the same margin on all four sides; every box clips its own text so nothing leaves its sticker.
+  // slots: left edge (mm) of each sticker printed on one 75 x 24 mm row; anything between them stays blank
+  // (3-column roll: slots [0, 50] prints the left and right stickers, the centre sticker is never touched).
+  const W = w; // sticker width; height is always 24
+  const narrow = W < 30; // 25 mm sticker of the 3-column roll
+  const M = narrow ? 1 : 1.2;
+  const G = narrow
+    ? { brandTop: M, brandH: 3.4, qrTop: 4.6, qr: 9.6, codeRowTop: 14.5, mrpTop: 17.2, netTop: 20 }
+    : { brandTop: M, brandH: 3.8, qrTop: 5.0, qr: 10.8, mrpTop: 16.5, netTop: 19.5 };
+  const gap = narrow ? 0.8 : W < 50 ? 1.2 : 1.8; // QR -> text
   const infoL = M + G.qr + gap;
   const infoW = W - infoL - M;
   const fullW = W - 2 * M;
   // font size that keeps a single line inside its width (bold Arial is ~0.62 em per char, digits/caps up to ~0.72)
-  const fit = (text, max, width, em = 0.7) => Math.max(1.6, Math.min(max, width / (Math.max(1, String(text).length) * em)));
+  const fit = (text, max, width, em = 0.7) => Math.max(1.5, Math.min(max, width / (Math.max(1, String(text).length) * em)));
   const money = (n) => (Number(n) || 0).toFixed(2);
+  const px = (n) => n.toFixed(2);
   const flat = labels.flatMap((l) => Array.from({ length: l.qty }, () => l));
+  const big = W >= 50;
 
-  const label = (l) => {
+  const label = (l, i) => {
     const code = String(l.barcode || l.sku || '');
     const brand = f.showStoreName ? (storeName || l.brandName || '') : '';
     const size = f.showSizeColor ? [l.color, l.size].filter(Boolean).join(' / ') : '';
     const name = [String(l.productName || '').toUpperCase(), size].filter(Boolean).join(' ');
-    const codeFs = fit(code, two ? 2.6 : 3, infoW, 0.72);
-    // product name: the biggest size at which it fits in up to 2 lines (3 lines when small) under the code
-    const nameRoom = G.qr - codeFs * 1.15 - 0.6;
-    let nameFs = two ? 2.4 : 2.8;
+    // product code beside the QR when it is readable there (≥ 1.8 mm), else on its own full-width row under the QR
+    const besideFs = fit(code, big ? 3 : narrow ? 2.2 : 2.6, infoW, 0.72);
+    const codeBeside = !narrow || besideFs >= 1.8;
+    const codeFs = codeBeside ? besideFs : fit(code, 2.3, fullW, 0.72);
+    const nameRoom = G.qr - (f.showSku && codeBeside ? codeFs * 1.15 + 0.6 : 0);
+    let nameFs = big ? 2.8 : narrow ? 2.1 : 2.4;
     const lines = (fs) => Math.ceil(name.length / Math.max(1, Math.floor(infoW / (fs * 0.66))));
-    while (nameFs > 1.6 && (lines(nameFs) > 3 || lines(nameFs) * nameFs * 1.12 > nameRoom)) nameFs -= 0.1;
+    while (nameFs > 1.5 && lines(nameFs) * nameFs * 1.12 > nameRoom) nameFs -= 0.1;
     const mrp = `MRP : ${money(l.mrp)}`;
     const net = `Net Rs: ${money(l.sellingPrice)}`;
-    const px = (n) => n.toFixed(2);
-    return `<div class="lbl">
+    const codeDiv = f.showSku ? `<div class="code" data-fit style="font-size:${px(codeFs)}mm">${esc(code)}</div>` : '';
+    return `<div class="lbl" style="left:${slots[i]}mm">
       ${brand ? `<div class="brand" data-fit style="font-size:${px(fit(brand, G.brandH / 1.3, fullW, 0.75))}mm">${esc(brand)}</div>` : ''}
       <div class="qr">${qrSvg(code, G.qr)}</div>
       <div class="info">
-        ${f.showSku ? `<div class="code" data-fit style="font-size:${px(codeFs)}mm">${esc(code)}</div>` : ''}
+        ${codeBeside ? codeDiv : ''}
         ${f.showProductName && name ? `<div class="name" data-fit style="font-size:${px(nameFs)}mm;height:${px(nameRoom)}mm">${esc(name)}</div>` : ''}
       </div>
-      ${f.showMrp ? `<div class="mrp" data-fit style="font-size:${px(fit(mrp, two ? 2.6 : 2.8, fullW, 0.62))}mm">${esc(mrp)}</div>` : ''}
-      ${f.showSellingPrice ? `<div class="net" data-fit style="font-size:${px(fit(net, 3, fullW, 0.66))}mm">${esc(net)}</div>` : ''}
+      ${codeBeside ? '' : codeDiv.replace('class="code"', 'class="code coderow"')}
+      ${f.showMrp ? `<div class="mrp" data-fit style="font-size:${px(fit(mrp, big ? 2.8 : narrow ? 2.3 : 2.6, fullW, 0.62))}mm">${esc(mrp)}</div>` : ''}
+      ${f.showSellingPrice ? `<div class="net" data-fit style="font-size:${px(fit(net, narrow ? 2.7 : 3, fullW, 0.66))}mm">${esc(net)}</div>` : ''}
     </div>`;
   };
   const rows = [];
-  for (let i = 0; i < flat.length; i += cols) rows.push(flat.slice(i, i + cols));
+  for (let i = 0; i < flat.length; i += slots.length) rows.push(flat.slice(i, i + slots.length));
   return `<!doctype html><html><head><meta charset="utf-8"><title>Labels</title><style>
     @page { size: 75mm 24mm; margin: 0; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { font-family: Arial, Helvetica, sans-serif; color: #000; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .row { display: flex; width: 75mm; height: 24mm; overflow: hidden; break-after: page; page-break-after: always; }
+    .row { position: relative; width: 75mm; height: 24mm; overflow: hidden; break-after: page; page-break-after: always; }
     .row:last-child { break-after: auto; page-break-after: auto; }
-    .lbl { position: relative; flex: none; width: ${W}mm; height: 24mm; overflow: hidden; }
+    .lbl { position: absolute; top: 0; width: ${W}mm; height: 24mm; overflow: hidden; }
     .lbl > div { position: absolute; overflow: hidden; }
     .brand { left: ${M}mm; width: ${fullW}mm; top: ${G.brandTop}mm; height: ${G.brandH}mm; line-height: ${G.brandH}mm; text-align: center; font-weight: 900; letter-spacing: .1mm; white-space: nowrap; }
     .qr { left: ${M}mm; top: ${G.qrTop}mm; width: ${G.qr}mm; height: ${G.qr}mm; }
     .qr svg { display: block; }
     .info { left: ${infoL}mm; width: ${infoW}mm; top: ${G.qrTop}mm; height: ${G.qr}mm; display: flex; flex-direction: column; justify-content: center; }
-    .code { flex: none; }
-    .code { font-weight: 900; line-height: 1.15; letter-spacing: .05mm; white-space: nowrap; overflow: hidden; }
-    .name { flex: none; margin-top: .6mm; font-weight: 700; line-height: 1.12; overflow: hidden; word-break: break-word; }
+    .code { flex: none; font-weight: 900; line-height: 1.15; letter-spacing: .05mm; white-space: nowrap; overflow: hidden; }
+    .code.coderow { left: ${M}mm; width: ${fullW}mm; top: ${G.codeRowTop || 0}mm; height: ${px((G.mrpTop - (G.codeRowTop || 0)))}mm; line-height: 1.1; }
+    .name { flex: none; margin-top: .5mm; font-weight: 700; line-height: 1.12; overflow: hidden; word-break: break-word; }
     .mrp, .net { left: ${M}mm; width: ${fullW}mm; white-space: nowrap; line-height: 1.05; }
-    .mrp { top: ${G.mrpTop}mm; height: ${G.netTop - G.mrpTop}mm; font-weight: 700; }
-    .net { top: ${G.netTop}mm; height: ${24 - M - G.netTop}mm; font-weight: 900; }
+    .mrp { top: ${G.mrpTop}mm; height: ${px(G.netTop - G.mrpTop)}mm; font-weight: 700; }
+    .net { top: ${G.netTop}mm; height: ${px(24 - M - G.netTop)}mm; font-weight: 900; }
   </style></head><body>${rows.map((r) => `<div class="row">${r.map(label).join('')}</div>`).join('')}
   <script>
-    // last check before printing: any text that would be cut shrinks until it fits its box (never below 1.5 mm)
+    // last check before printing: any text that would be cut shrinks until it fits its box (never below 1.4 mm)
     document.querySelectorAll('[data-fit]').forEach(function (el) {
       var fs = parseFloat(el.style.fontSize) || 2.5;
       var tall = el.classList.contains('name');
-      while (fs > 1.5 && (el.scrollWidth > el.clientWidth + 0.5 || (tall && el.scrollHeight > el.clientHeight + 0.5))) { fs -= 0.1; el.style.fontSize = fs.toFixed(2) + 'mm'; }
+      while (fs > 1.4 && (el.scrollWidth > el.clientWidth + 0.5 || (tall && el.scrollHeight > el.clientHeight + 0.5))) { fs -= 0.1; el.style.fontSize = fs.toFixed(2) + 'mm'; }
     });
   </script></body></html>`;
 }
@@ -434,7 +441,7 @@ export function labelsHtml(labels, { size = '50x25', columns = 1, storeName = ''
   const s = LABEL_SIZES[size] || LABEL_SIZES['50x25'];
   if (s.design) {
     const f = { showStoreName: true, showProductName: true, showSku: true, showSizeColor: true, showMrp: true, showSellingPrice: true, ...fields };
-    return s.design === 'acc' ? accLabelsHtml(labels, { storeName, fields: f, cols: s.cols || 1 }) : marcLabelsHtml(labels, { storeName, fields: f, cols: s.cols || 2 });
+    return s.design === 'acc' ? accLabelsHtml(labels, { storeName, fields: f, slots: s.slots || [0], w: s.w }) : marcLabelsHtml(labels, { storeName, fields: f, cols: s.cols || 2 });
   }
   const small = s.h < 24;
   const f = { showStoreName: true, showProductName: true, showSku: true, showSizeColor: true, showMrp: true, showSellingPrice: true, ...fields };
