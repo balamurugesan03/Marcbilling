@@ -219,6 +219,11 @@ export default function Reports() {
                 <option value="">With + Without GST</option><option value="with">With GST only</option><option value="without">Without GST only</option>
               </select>
             )}
+            {key === 'fin_sales' && (
+              <select className="input w-40" value={extra.mode || ''} onChange={(e) => setExtra({ ...extra, mode: e.target.value || undefined })}>
+                <option value="">All payment modes</option><option value="cash">Cash bills</option><option value="upi">GPay bills</option><option value="card">Card bills</option><option value="other">Other modes</option>
+              </select>
+            )}
             {key === 'fin_sales' && <span className="flex items-center gap-2 text-xs"><span className="badge-green">With GST</span><span className="badge-amber">Without GST</span></span>}
             {key === 'sales_datewise' && <select className="input w-36" value={extra.status || ''} onChange={(e) => setExtra({ ...extra, status: e.target.value || undefined })}><option value="">All status</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select>}
             {key === 'gst_billing' && (
@@ -244,6 +249,25 @@ export default function Reports() {
             <div className="flex-1" />
             <button type="button" className="btn-ghost btn-sm" onClick={load}><RefreshCw className={clsx('h-4 w-4', loading && 'animate-spin')} /></button>
           </div>
+          {key === 'fin_sales' && data?.summary && (
+            <div className="grid grid-cols-2 gap-2 border-b border-ink-100 p-3 sm:grid-cols-4 xl:grid-cols-7 dark:border-ink-800">
+              {[
+                ['Total sales', data.summary.total, `${data.summary.bills} bills`, 'text-ink-900 dark:text-white'],
+                ['Cash', data.summary.cash, 'after change', 'text-emerald-700 dark:text-emerald-300'],
+                ['GPay', data.summary.upi, '', 'text-sky-700 dark:text-sky-300'],
+                ['Card', data.summary.card, '', 'text-violet-700 dark:text-violet-300'],
+                ['Others', data.summary.other, 'bank / credit / store credit', 'text-ink-700 dark:text-ink-200'],
+                ['With GST', data.summary.withGst.total, `${data.summary.withGst.bills} bills`, 'text-emerald-700 dark:text-emerald-300'],
+                ['Without GST', data.summary.withoutGst.total, `${data.summary.withoutGst.bills} bills`, 'text-amber-700 dark:text-amber-300'],
+              ].map(([label, v, sub, tone]) => (
+                <div key={label} className="rounded-lg border border-ink-100 px-3 py-2 dark:border-ink-800">
+                  <div className="text-[11px] font-medium uppercase tracking-wide text-ink-500">{label}</div>
+                  <div className={clsx('text-lg font-bold tabular-nums', tone)}>{inr(v)}</div>
+                  {sub && <div className="text-[11px] text-ink-400">{sub}</div>}
+                </div>
+              ))}
+            </div>
+          )}
           <div className="table-wrap max-h-[calc(100vh-280px)]">
             {loading && !data ? <Loading /> : !data?.rows?.length ? <Empty title="No data for the selected filters" /> : (
               <table className="tbl">
