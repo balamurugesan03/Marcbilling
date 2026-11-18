@@ -156,9 +156,10 @@ export default function Reports() {
   useEffect(() => { get('/reports').then(setCatalogue).catch((e) => toast.error(errMsg(e))); }, []);
   useEffect(() => { setPage(1); setExtra({}); }, [key]);
   // Sales Summary opens on today's sales; pick From / To for any other period
+  const [fromTo, setFromTo] = useState(false); // Sales Summary: one date unless From - To is switched on
   const prevKey = useRef(null);
   useEffect(() => {
-    if (key === 'fin_sales') setRange({ from: isoDate(), to: isoDate() });
+    if (key === 'fin_sales') { setRange({ from: isoDate(), to: isoDate() }); setFromTo(false); }
     else if (prevKey.current === 'fin_sales') setRange(defaultRange()); // back to the usual month-to-date
     prevKey.current = key;
   }, [key]);
@@ -208,7 +209,16 @@ export default function Reports() {
         <div className="card min-w-0 overflow-hidden">
           <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 p-3 dark:border-ink-800">
             {key === 'sales_statement' && <input type="month" className="input w-40" title="Pick a month" value={range.from?.slice(0, 7) || ''} onChange={(e) => e.target.value && setRange(monthRange(e.target.value))} />}
-            {!NO_DATE.includes(key) && <DateRange {...range} onChange={setRange} />}
+            {key === 'fin_sales' && !fromTo && (
+              <input type="date" className="input w-40" title="Sales of this day" value={range.from || ''} max={isoDate()}
+                onChange={(e) => e.target.value && setRange({ from: e.target.value, to: e.target.value })} />
+            )}
+            {key === 'fin_sales' && (
+              <label className="flex items-center gap-1.5 text-sm">
+                <input type="checkbox" checked={fromTo} onChange={(e) => { setFromTo(e.target.checked); if (!e.target.checked) setRange({ from: range.from, to: range.from }); }} /> From - To
+              </label>
+            )}
+            {!NO_DATE.includes(key) && (key !== 'fin_sales' || fromTo) && <DateRange {...range} onChange={setRange} />}
             <SearchBox value={search} onChange={setSearch} className="w-56" placeholder="Search / filter" />
             {user?.role?.allBranches && branchId === 'all' && (
               <select className="input w-40" value={branch} onChange={(e) => setBranch(e.target.value)}><option value="">All branches</option>{branches.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}</select>
