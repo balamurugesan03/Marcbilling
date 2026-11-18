@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const env = require('../config/env');
 const ApiError = require('../utils/ApiError');
 const { User } = require('../models');
-const { normalizePermissions } = require('../constants/permissions');
+const { normalizePermissions, ALL_PERMISSIONS } = require('../constants/permissions');
 
 /**
  * Verifies the access token and loads the user + role.
@@ -32,7 +32,8 @@ async function authenticate(req, res, next) {
     req.user = user;
     req.role = user.roleId;
     req.companyId = user.companyId;
-    req.perms = new Set(normalizePermissions(user.roleId.permissions || []));
+    // Super Admin always has every permission, including ones added after the role was created
+    req.perms = new Set(user.roleId.code === 'super_admin' ? ALL_PERMISSIONS : normalizePermissions(user.roleId.permissions || []));
     req.isSuperAdmin = user.roleId.code === 'super_admin';
     req.allowedBranchIds = user.roleId.allBranches ? null : (user.branchIds || []).map(String);
 

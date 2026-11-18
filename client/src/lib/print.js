@@ -11,7 +11,8 @@ const STORE_TAGLINE = 'the family fashion';
 // header of a bill: the branch it was billed at (its name, address, phone), falling back to the store defaults
 const branchAddress = (b) => [b?.address?.line1, b?.address?.line2, b?.address?.city].filter(Boolean).join(', ') || STORE_ADDRESS;
 const branchPhone = (b) => b?.phone || STORE_PHONE;
-const branchTitle = (branch, company) => branch?.name || company?.name || 'MARC';
+// the branch's own company name (set on the Branches page) wins, then the branch name
+const branchTitle = (branch, company) => branch?.displayName || branch?.name || company?.name || 'MARC';
 
 /** Prints an HTML document through a hidden iframe (the OS print dialog selects the printer). */
 export function printHtml(html, { title = 'Print' } = {}) {

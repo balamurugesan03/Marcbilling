@@ -1,6 +1,9 @@
 // Company, Branch, Role and User management.
 const bcrypt = require('bcryptjs');
-const { Company, Branch, Role, User, RefreshToken, Permission } = require('../models');
+const {
+  Company, Branch, Role, User, RefreshToken, Permission, Customer, Stock, HeldBill,
+  Sale, SaleReturn, Exchange, Purchase, PurchaseReturn, StockLedger, StockAdjustment, StockTransfer, Expense, Payment, CashSession,
+} = require('../models');
 const ApiError = require('../utils/ApiError');
 const { paginate, escapeRegex, pick } = require('../utils/common');
 const { PERMISSIONS, ALL_PERMISSIONS, LEGACY_PERMISSIONS } = require('../constants/permissions');
@@ -17,27 +20,81 @@ async function updateCompany(req, data) {
 }
 
 /* ---------- Branch ---------- */
+/** Branches made before main / sub existed: the default (or oldest) one becomes the main, the rest sub branches under it. */
+async function ensureMainBranch(companyId) {
+  if (await Branch.exists({ companyId, type: 'main' })) return;
+  const main = await Branch.findOne({ companyId }).sort({ isDefault: -1, createdAt: 1 }).lean();
+  if (main) await makeMain(companyId, main._id);
+}
+
+/** Only one main branch: making a branch the main moves every other branch under it as a sub branch. */
+async function makeMain(companyId, id) {
+  await Branch.updateMany({ companyId, _id: { $ne: id } }, { $set: { type: 'sub', parentId: id } });
+  await Branch.updateOne({ _id: id }, { $set: { type: 'main', parentId: null } });
+}
+
 async function listBranches(req) {
+  await ensureMainBranch(req.companyId);
   const filter = { companyId: req.companyId };
   if (req.query.active) filter.active = req.query.active === 'true';
   // scope=company: every branch's name/code (e.g. stock transfer destinations) without exposing details
-  if (req.query.scope === 'company') return Branch.find(filter).select('name code stateCode active').sort({ name: 1 }).lean();
+  if (req.query.scope === 'company') return Branch.find(filter).select('name code type stateCode active').sort({ type: 1, name: 1 }).lean();
   if (req.allowedBranchIds) filter._id = { $in: req.allowedBranchIds };
-  return Branch.find(filter).sort({ name: 1 }).lean();
+  return Branch.find(filter).sort({ type: 1, name: 1 }).lean(); // main first ('main' < 'sub')
 }
 
 async function createBranch(req, data) {
-  const doc = await Branch.create({ ...data, companyId: req.companyId });
+  await ensureMainBranch(req.companyId);
+  const main = await Branch.findOne({ companyId: req.companyId, type: 'main' }).lean();
+  const isMain = !main || data.type === 'main'; // the first branch is always the main
+  const doc = await Branch.create({ ...data, type: isMain ? 'main' : 'sub', parentId: isMain ? null : main._id, companyId: req.companyId });
+  if (isMain && main) await makeMain(req.companyId, doc._id);
   await audit.log(req, { action: 'branch.create', entity: 'Branch', entityId: doc._id, refNo: doc.code, newValue: doc });
-  return doc;
+  return Branch.findById(doc._id).lean();
 }
 
 async function updateBranch(req, id, data) {
+  await ensureMainBranch(req.companyId);
   const before = await Branch.findOne({ _id: id, companyId: req.companyId }).lean();
   if (!before) throw ApiError.notFound('Branch not found');
-  const doc = await Branch.findByIdAndUpdate(id, { $set: data }, { new: true, runValidators: true }).lean();
+  const { type, ...rest } = data;
+  if (type === 'sub' && before.type === 'main') throw ApiError.badRequest('There must be one main branch. Open another branch and set it as Main branch instead');
+  if ((type === 'main' || before.type === 'main') && rest.active === false) throw ApiError.badRequest('The main branch cannot be made inactive');
+  await Branch.updateOne({ _id: id }, { $set: rest }, { runValidators: true });
+  if (type === 'main' && before.type !== 'main') await makeMain(req.companyId, before._id);
+  const doc = await Branch.findById(id).lean();
   await audit.log(req, { action: 'branch.update', entity: 'Branch', entityId: id, refNo: doc.code, oldValue: before, newValue: doc });
   return doc;
+}
+
+/** A branch can be deleted only while it has no bills, purchases, stock movements or other records of its own. */
+async function deleteBranch(req, id) {
+  await ensureMainBranch(req.companyId);
+  const branch = await Branch.findOne({ _id: id, companyId: req.companyId }).lean();
+  if (!branch) throw ApiError.notFound('Branch not found');
+  if (req.allowedBranchIds && !req.allowedBranchIds.includes(String(id))) throw ApiError.forbidden('You do not have access to this branch');
+  if (branch.type === 'main' && await Branch.exists({ companyId: req.companyId, _id: { $ne: id } })) {
+    throw ApiError.badRequest('The main branch cannot be deleted. Set another branch as Main branch first');
+  }
+  const used = [
+    [Sale, 'bills'], [SaleReturn, 'sales returns'], [Exchange, 'exchanges'], [Purchase, 'purchases'], [PurchaseReturn, 'purchase returns'],
+    [StockLedger, 'stock entries'], [StockAdjustment, 'stock adjustments'], [Expense, 'expenses'], [Payment, 'payments'], [CashSession, 'cash sessions'],
+  ];
+  for (const [M, what] of used) {
+    if (await M.exists({ branchId: id })) throw ApiError.badRequest(`${branch.name} has ${what}, so it cannot be deleted. Mark it inactive instead`);
+  }
+  if (await StockTransfer.exists({ $or: [{ fromBranchId: id }, { toBranchId: id }] })) {
+    throw ApiError.badRequest(`${branch.name} has stock transfers, so it cannot be deleted. Mark it inactive instead`);
+  }
+  await Promise.all([
+    Stock.deleteMany({ branchId: id }),
+    HeldBill.deleteMany({ branchId: id }),
+    Customer.updateMany({ companyId: req.companyId, branchId: id }, { $unset: { branchId: 1 } }),
+    User.updateMany({ companyId: req.companyId, branchIds: id }, { $pull: { branchIds: id } }),
+  ]);
+  await User.updateMany({ companyId: req.companyId, defaultBranchId: id }, { $unset: { defaultBranchId: 1 } });
+  await Branch.deleteOne({ _id: id });
+  await audit.log(req, { action: 'branch.delete', entity: 'Branch', entityId: id, refNo: branch.code, oldValue: branch });
 }
 
 /* ---------- Roles & permissions ---------- */
@@ -151,6 +208,6 @@ async function updateUser(req, id, data) {
 }
 
 module.exports = {
-  getCompany, updateCompany, listBranches, createBranch, updateBranch,
+  getCompany, updateCompany, listBranches, createBranch, updateBranch, deleteBranch,
   listPermissions, listRoles, createRole, updateRole, deleteRole, listUsers, createUser, updateUser,
 };

@@ -22,7 +22,7 @@ const auth = {
 
 const org = {
   company: z.object({ name: str().min(2), legalName: optStr(), gstin, pan: optStr(10), email: optStr(), phone: optStr(20), website: optStr(), address, logoUrl: optStr(500) }),
-  branch: z.object({ name: str(80).min(2), code: str(10).min(2).toUpperCase(), gstin, phone: optStr(20), email: optStr(), address, stateCode: optStr(5), managerName: optStr(), active: z.boolean().optional(), isDefault: z.boolean().optional() }),
+  branch: z.object({ name: str(80).min(2), code: str(10).min(2).toUpperCase(), type: z.enum(['main', 'sub']).optional(), displayName: z.string().trim().max(80).optional(), gstin, phone: optStr(20), email: optStr(), address, stateCode: optStr(5), managerName: optStr(), active: z.boolean().optional(), isDefault: z.boolean().optional() }),
   role: z.object({ name: str(60).min(2), code: optStr(60), description: optStr(), permissions: z.array(z.string()).default([]), allBranches: z.boolean().default(false), maxDiscountPercent: z.coerce.number().min(0).max(100).default(0) }),
   userCreate: z.object({
     name: str(80).min(2), username: str(40).min(3).toLowerCase().regex(/^[a-z0-9._-]+$/, 'Username may contain letters, numbers, . _ -'),

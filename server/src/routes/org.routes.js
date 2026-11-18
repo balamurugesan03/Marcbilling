@@ -15,6 +15,7 @@ const branches = express.Router();
 branches.get('/', c.listBranches);
 branches.post('/', permit('branch.create'), validate(v.org.branch), c.createBranch);
 branches.put('/:id', permit('branch.edit'), validate(v.org.branch.partial()), c.updateBranch);
+branches.delete('/:id', permit('branch.delete'), c.deleteBranch);
 
 const roles = express.Router();
 roles.get('/', permit('role.view', 'user.view', 'user.create', 'user.edit'), c.listRoles);

@@ -257,7 +257,7 @@ export default function Layout() {
             <Store className="h-4 w-4 text-brand-400" />
             <select className="bg-transparent py-0.5 pr-1 text-sm font-medium outline-none [&>option]:text-ink-900" value={branchId || ''} onChange={(e) => { setBranch(e.target.value); toast.success(`Switched to ${e.target.value === 'all' ? 'All Branches' : branches.find((b) => b._id === e.target.value)?.name}`); }}>
               {user?.role?.allBranches && <option value="all">All Branches</option>}
-              {branches.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
+              {branches.map((b) => <option key={b._id} value={b._id}>{b.name}{b.type === 'main' ? ' (Main)' : ''}</option>)}
             </select>
           </div>
           {can('sale.create') && <button type="button" className={clsx('btn-primary shrink-0', isPOS && 'ring-2 ring-white/40')} onClick={() => navigate('/pos')} title="POS Billing (F1 = new bill)"><ShoppingCart className="h-4 w-4" /> <span className="hidden sm:inline">POS Billing</span></button>}
@@ -291,7 +291,8 @@ export default function Layout() {
         {mobileNav && <MobileNav can={can} />}
       </div>
       <main className={clsx('min-h-0 flex-1 overflow-y-auto', isPOS ? 'p-0' : 'p-4 sm:p-6')}>
-        <Outlet />
+        {/* re-mount the page on a branch switch so it reloads that branch's data */}
+        <Outlet key={branchId || 'none'} />
       </main>
       <ConfirmHost />
       <ChangePassword open={pwd} onClose={() => setPwd(false)} />

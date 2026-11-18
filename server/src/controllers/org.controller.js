@@ -11,6 +11,7 @@ module.exports = {
   listBranches: asyncHandler(async (req, res) => ok(res, await org.listBranches(req))),
   createBranch: asyncHandler(async (req, res) => ok(res, await org.createBranch(req, req.body), 201)),
   updateBranch: asyncHandler(async (req, res) => ok(res, await org.updateBranch(req, req.params.id, req.body))),
+  deleteBranch: asyncHandler(async (req, res) => { await org.deleteBranch(req, req.params.id); ok(res, true); }),
 
   listPermissions: asyncHandler(async (req, res) => ok(res, await org.listPermissions())),
   listRoles: asyncHandler(async (req, res) => ok(res, await org.listRoles(req))),

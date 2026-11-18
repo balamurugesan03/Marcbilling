@@ -56,19 +56,25 @@ const CONFIG = {
     defaults: { active: true, openingBalance: 0 },
   },
   branches: {
-    title: 'Branches', icon: Store, url: '/branches', perms: { create: ['branch.create'], edit: ['branch.edit'], delete: [] }, noDelete: true, noPaging: true,
+    title: 'Branches', icon: Store, url: '/branches', perms: { create: ['branch.create'], edit: ['branch.edit'], delete: ['branch.delete'] }, noPaging: true,
+    subtitle: 'One main branch, any number of sub branches — each keeps its own bills, stock and accounts',
+    deleteMessage: 'Only a branch with no bills, purchases or stock entries can be deleted — otherwise mark it inactive.',
     fields: [
-      { name: 'name', label: 'Branch name', required: true }, { name: 'code', label: 'Code', required: true, upper: true }, { name: 'gstin', label: 'GSTIN', upper: true },
+      { name: 'type', label: 'Branch type', type: 'select', options: [{ value: 'main', label: 'Main branch' }, { value: 'sub', label: 'Sub branch' }], hint: 'Only one main branch — choosing Main moves the current main under it' },
+      { name: 'name', label: 'Branch name', required: true }, { name: 'code', label: 'Code', required: true, upper: true },
+      { name: 'displayName', label: 'Company name (on bill & barcode)', span: 2, hint: 'Printed on this branch\'s bills and barcode labels. Empty = branch name' },
+      { name: 'gstin', label: 'GSTIN', upper: true },
       { name: 'stateCode', label: 'State code', hint: 'e.g. 33 (Tamil Nadu), 32 (Kerala)' }, { name: 'phone', label: 'Phone' }, { name: 'email', label: 'Email' },
       { name: 'managerName', label: 'Manager' }, ...addr(), { name: 'active', label: 'Active', type: 'toggle' },
     ],
     columns: [
-      { key: 'name', label: 'Branch', render: (r) => <><b>{r.name}</b> <span className="badge-gray ml-1">{r.code}</span></> },
+      { key: 'name', label: 'Branch', render: (r) => <><b>{r.name}</b> <span className="badge-gray ml-1">{r.code}</span>{r.displayName && <div className="text-xs text-ink-500">{r.displayName}</div>}</> },
+      { key: 'type', label: 'Type', render: (r) => (r.type === 'main' ? <span className="badge-green">Main</span> : <span className="badge-gray">Sub</span>) },
       { key: 'gstin', label: 'GSTIN', render: (r) => <span className="font-mono text-xs">{r.gstin}</span> }, { key: 'stateCode', label: 'State' },
       { key: 'phone', label: 'Phone' }, { key: 'city', label: 'City', render: (r) => r.address?.city }, { key: 'managerName', label: 'Manager' },
       { key: 'active', label: 'Status', render: (r) => <StatusBadge status={r.active ? 'active' : 'inactive'} /> },
     ],
-    defaults: { active: true },
+    defaults: { active: true, type: 'sub' },
   },
   expenseCategories: {
     title: 'Expense Categories', icon: Receipt, url: '/expense-categories', perms: { create: ['expense.create', 'expense.edit'], edit: ['expense.edit'], delete: ['expense.delete'] },
@@ -117,7 +123,7 @@ function MasterForm({ cfg, doc, onClose, onSaved }) {
           const span = fl.span === 2 ? 'col-span-2' : 'col-span-2 sm:col-span-1';
           const v = getPath(f, fl.name);
           if (fl.type === 'toggle') return <div key={fl.name} className="col-span-2 sm:col-span-4"><Toggle checked={v !== false} onChange={(c) => setF(setPath(f, fl.name, c))} label={fl.label} /></div>;
-          if (fl.type === 'select') return <Select key={fl.name} className={span} label={fl.label} value={v ?? ''} onChange={(e) => setF(setPath(f, fl.name, e.target.value))} options={fl.options} />;
+          if (fl.type === 'select') return <Select key={fl.name} className={span} label={fl.label} hint={fl.hint} value={v ?? ''} onChange={(e) => setF(setPath(f, fl.name, e.target.value))} options={fl.options} />;
           if (fl.type === 'parent') return <Select key={fl.name} className="col-span-2" label={fl.label} value={(v && v._id) || v || ''} onChange={(e) => setF(setPath(f, fl.name, e.target.value))} placeholder="— Top-level category —" options={parents.map((p) => ({ value: p._id, label: p.name }))} />;
           return <Input key={fl.name} className={span} label={fl.label} required={fl.required} hint={fl.hint} type={fl.type === 'number' ? 'number' : 'text'} value={v ?? ''} onChange={(e) => setF(setPath(f, fl.name, fl.upper ? e.target.value.toUpperCase() : e.target.value))} />;
         })}
@@ -142,8 +148,8 @@ export default function Masters({ kind }) {
   const canDelete = !cfg.noDelete && cfg.perms.delete.length > 0 && can(...cfg.perms.delete);
   useEffect(() => { if (cfg.noPaging) get(cfg.url).then(setBranchRows).catch((e) => toast.error(errMsg(e))); }, [reloadKey, kind]);
   const remove = async (r) => {
-    if (!(await confirm({ title: `Delete ${r.name}?`, message: 'Items in use cannot be deleted — mark them inactive instead.', danger: true, confirmText: 'Delete' }))) return;
-    try { await del(`${cfg.url}/${r._id}`); toast.success('Deleted'); setReloadKey((k) => k + 1); } catch (e) { toast.error(errMsg(e)); }
+    if (!(await confirm({ title: `Delete ${r.name}?`, message: cfg.deleteMessage || 'Items in use cannot be deleted — mark them inactive instead.', danger: true, confirmText: 'Delete' }))) return;
+    try { await del(`${cfg.url}/${r._id}`); toast.success('Deleted'); setReloadKey((k) => k + 1); if (kind === 'branches') reloadBranches(); } catch (e) { toast.error(errMsg(e)); }
   };
   const columns = [...cfg.columns, (canEdit || canDelete) && {
     key: 'actions', label: '', render: (r) => (

@@ -10,7 +10,9 @@ import { LABEL_SIZES, labelsHtml, printHtml, isAccessory } from '../../lib/print
 import { inr, variantLabel } from '../../lib/format';
 
 export default function BarcodePrinting() {
-  const { settings, company } = useAuth();
+  const { settings, company, branches, branchId } = useAuth();
+  // labels carry the selected branch's company name (Branches page), else the company name
+  const storeName = branches.find((x) => x._id === branchId)?.displayName || company?.name;
   const location = useLocation();
   const b = settings?.barcode || {};
   const [queue, setQueue] = useState([]);
@@ -36,8 +38,8 @@ export default function BarcodePrinting() {
   // accessories always print on their own 75 x 24 mm label, whatever size is chosen for the rest
   const ACC = 'ACC-75x24';
   const hasAcc = size === ACC || queue.some(isAccessory);
-  const opts = (sz) => ({ size: sz, columns, storeName: company?.name, fields, format: format || undefined, batch: batch.trim() });
-  const preview = useMemo(() => (queue[0] ? labelsHtml([{ ...queue[0], qty: 1 }], { ...opts(isAccessory(queue[0]) ? ACC : size), columns: 1 }) : ''), [queue[0], size, fields, format, company, batch]);
+  const opts = (sz) => ({ size: sz, columns, storeName, fields, format: format || undefined, batch: batch.trim() });
+  const preview = useMemo(() => (queue[0] ? labelsHtml([{ ...queue[0], qty: 1 }], { ...opts(isAccessory(queue[0]) ? ACC : size), columns: 1 }) : ''), [queue[0], size, fields, format, storeName, batch]);
 
   const print = async () => {
     if (!queue.length) return toast.error('Add products to print');

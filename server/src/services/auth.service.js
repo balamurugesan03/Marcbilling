@@ -5,7 +5,7 @@ const env = require('../config/env');
 const ApiError = require('../utils/ApiError');
 const { User, RefreshToken, Branch, Company } = require('../models');
 const audit = require('./audit.service');
-const { normalizePermissions } = require('../constants/permissions');
+const { normalizePermissions, ALL_PERMISSIONS } = require('../constants/permissions');
 
 const hash = (t) => crypto.createHash('sha256').update(t).digest('hex');
 
@@ -31,14 +31,14 @@ async function profile(userId) {
   const branchFilter = { companyId: user.companyId, active: true };
   if (!role.allBranches) branchFilter._id = { $in: user.branchIds };
   const [branches, company] = await Promise.all([
-    Branch.find(branchFilter).sort({ name: 1 }).lean(),
+    Branch.find(branchFilter).sort({ type: 1, name: 1 }).lean(),
     Company.findById(user.companyId).lean(),
   ]);
   return {
     user: {
       _id: user._id, name: user.name, username: user.username, email: user.email, mobile: user.mobile,
       branchIds: user.branchIds, defaultBranchId: user.defaultBranchId || branches[0]?._id,
-      role: { _id: role._id, name: role.name, code: role.code, allBranches: role.allBranches, maxDiscountPercent: role.maxDiscountPercent, permissions: normalizePermissions(role.permissions) },
+      role: { _id: role._id, name: role.name, code: role.code, allBranches: role.allBranches, maxDiscountPercent: role.maxDiscountPercent, permissions: role.code === 'super_admin' ? ALL_PERMISSIONS : normalizePermissions(role.permissions) },
     },
     branches,
     company,

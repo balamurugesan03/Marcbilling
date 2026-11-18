@@ -64,6 +64,7 @@ const PERMISSIONS = [
 
   P('branch.create', 'Company & Branches', 'create', 'Create branches'),
   P('branch.edit', 'Company & Branches', 'edit', 'Edit company / branches'),
+  P('branch.delete', 'Company & Branches', 'delete', 'Delete branches'),
 
   P('settings.edit', 'Settings', 'edit', 'Change settings'),
   P('audit.view', 'Audit Logs', 'view', 'View audit logs'),
