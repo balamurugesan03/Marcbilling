@@ -78,11 +78,14 @@ function DiscountModal({ open, onClose, line, maxPct, onSubmit, title = 'Item Di
 }
 
 /**
- * Discount typed straight into the bill: "50" = ₹50 off, "10%" = 10 % off.
+ * Discount typed straight into the bill. mode "amount": "50" = ₹50 off ("10%" still works); mode "percent": "10" = 10 % off.
+ * Each box shows the discount in its own unit, so the ₹ box and the % box always agree.
  * Applied on Enter / leaving the box, with the same checks as the discount popup (amount, role limit).
  */
-function DiscInput({ value, gross, maxPct, onApply, onDone, className }) {
-  const shown = value?.discountPercent ? `${value.discountPercent}%` : value?.discount ? String(value.discount) : '';
+function DiscInput({ value, gross, maxPct, onApply, onDone, className, mode = 'amount' }) {
+  const curAmt = value?.discountPercent ? round2((gross * value.discountPercent) / 100) : round2(value?.discount || 0);
+  const curPct = value?.discountPercent ? value.discountPercent : gross && curAmt ? round2((curAmt / gross) * 100) : 0;
+  const shown = mode === 'percent' ? (curPct ? String(curPct) : '') : (curAmt ? String(curAmt) : '');
   const [v, setV] = useState(shown);
   const [editing, setEditing] = useState(false);
   const cancel = useRef(false);
@@ -92,7 +95,7 @@ function DiscInput({ value, gross, maxPct, onApply, onDone, className }) {
     if (cancel.current) { cancel.current = false; setV(shown); return; }
     const t = v.trim().replace(/\s/g, '');
     if (t === shown) return;
-    const isPct = t.endsWith('%');
+    const isPct = mode === 'percent' || t.endsWith('%');
     const n = Number(t.replace('%', '')) || 0;
     const amt = isPct ? round2((gross * n) / 100) : round2(n);
     const fail = (msg) => { toast.error(msg); setV(shown); };
@@ -102,7 +105,7 @@ function DiscInput({ value, gross, maxPct, onApply, onDone, className }) {
     return null;
   };
   return (
-    <input type="text" inputMode="decimal" placeholder="0" title='Type amount (50) or percent (10%) and press Enter'
+    <input type="text" inputMode="decimal" placeholder={mode === 'percent' ? '%' : '₹'} title={mode === 'percent' ? 'Discount percent (10 = 10 %), press Enter' : 'Discount amount in ₹ (50), press Enter'}
       className={clsx('input input-sm text-right tabular-nums text-rose-600', className)} value={v}
       onChange={(e) => setV(e.target.value.replace(/[^\d.%]/g, ''))}
       onFocus={(e) => { setEditing(true); e.target.select(); }}
@@ -112,6 +115,16 @@ function DiscInput({ value, gross, maxPct, onApply, onDone, className }) {
         if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); onDone?.(); }
         if (e.key === 'Escape') { e.preventDefault(); cancel.current = true; e.currentTarget.blur(); onDone?.(); }
       }} />
+  );
+}
+
+/** ₹ and % discount boxes side by side: type in either, the other follows. */
+function DiscPair({ className, ...props }) {
+  return (
+    <div className={clsx('flex items-center justify-end gap-1', className)}>
+      <DiscInput {...props} mode="amount" className="w-[4.5rem]" />
+      <DiscInput {...props} mode="percent" className="w-14" />
+    </div>
   );
 }
 
@@ -773,7 +786,7 @@ export default function POS() {
                 </div>
               ) : (
                 <table className="tbl">
-                  <thead><tr><th className="w-10">#</th><th>Barcode</th><th>Product</th><th>Size</th><th>Color</th><th className="num w-32">Qty</th><th className="num">Rate</th><th className="num">Disc</th><th className="num">GST</th><th className="num">Amount</th><th className="w-28" /></tr></thead>
+                  <thead><tr><th className="w-10">#</th><th>Barcode</th><th>Product</th><th>Size</th><th>Color</th><th className="num w-32">Qty</th><th className="num">Rate</th><th className="num">Disc ₹ / %</th><th className="num">GST</th><th className="num">Amount</th><th className="w-28" /></tr></thead>
                   <tbody>
                     {lines.map((l, i) => (
                       <tr key={l.key} data-row={i} onClick={() => { pos.select(i); focusScan(); }} className={clsx('cursor-pointer', l.qty < 0 && 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300', i === selected && '!bg-brand-50 ring-1 ring-inset ring-brand-300 dark:!bg-brand-500/10 dark:ring-brand-500/40')}>
@@ -793,7 +806,7 @@ export default function POS() {
                         <td className="num text-rose-600">
                           {l.qty > 0 && can('sale.discount') ? (
                             <>
-                              <DiscInput className="ml-auto w-20" value={l} gross={l.gross} maxPct={maxPct} onApply={(d) => pos.updateLine(i, d)} onDone={focusScan} />
+                              <DiscPair value={l} gross={l.gross} maxPct={maxPct} onApply={(d) => pos.updateLine(i, d)} onDone={focusScan} />
                               {round2(l.discountTotal - l.lineDiscount) > 0 && <div className="text-[10px]">bill -{inr(l.discountTotal - l.lineDiscount)}</div>}
                             </>
                           ) : (l.discountTotal ? `-${inr(l.discountTotal)}` : '-')}
@@ -855,8 +868,8 @@ export default function POS() {
               </div>
               {can('sale.discount') && items.length > 0 && (
                 <div className="flex items-center justify-between">
-                  <dt className="text-ink-500">Bill discount <span className="text-[11px]">(₹ or %)</span></dt>
-                  <dd><DiscInput className="w-24" value={{ discount: billDiscount }} gross={soldNet} maxPct={Math.min(maxPct, settings?.discount?.maxBillDiscountPercent ?? 100)}
+                  <dt className="text-ink-500">Bill discount <span className="text-[11px]">(₹ / %)</span></dt>
+                  <dd><DiscPair value={{ discount: billDiscount }} gross={soldNet} maxPct={Math.min(maxPct, settings?.discount?.maxBillDiscountPercent ?? 100)}
                     onApply={(d) => pos.setBillDiscount(d.discountPercent ? round2((soldNet * d.discountPercent) / 100) : d.discount)} onDone={focusScan} /></dd>
                 </div>
               )}
