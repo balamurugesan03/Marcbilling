@@ -254,6 +254,7 @@ export const LABEL_SIZES = {
   'MARC-1up': { w: 38, h: 25, label: 'MARC design - 38 x 25 mm (1 across)', design: 'marc', cols: 1 },
   'MARC-2up': { w: 38.5, h: 25, label: 'MARC design - 2 across (80 x 25 mm roll)', design: 'marc', cols: 2 },
   // accessories, 75 x 24 mm roll; slots = left edge of each sticker printed (mm)
+  'ACC-3up': { w: 25, h: 24, label: 'Accessories - 3 across on 75 x 24 mm (3 x 25 mm)', design: 'acc', slots: [0, 25, 50] },
   'ACC-LR': { w: 25, h: 24, label: 'Accessories - 3-column roll (3 x 25 mm): left + right only, centre blank', design: 'acc', slots: [0, 50] },
   'ACC-2up': { w: 37.5, h: 24, label: 'Accessories - 2 across on 75 x 24 mm (no gap)', design: 'acc', slots: [0, 37.5] },
   'ACC-75x24': { w: 75, h: 24, label: 'Accessories - 75 x 24 mm (1 across, no gap)', design: 'acc', slots: [0] },
@@ -292,7 +293,7 @@ function marcLabelsHtml(labels, { storeName = '', fields: f, cols = 2 }) {
   const lw = cols === 1 ? 38 : 38.5; // label width
   const pageW = cols === 1 ? 38 : MARC_PAGE_W;
   // store name: a little smaller on the 2-across roll; top keeps its baseline where the PRN has it
-  const storeFs = cols === 1 ? 5.6 : 4.8;
+  const storeFs = cols === 1 ? 5 : 4.2; // smaller + lighter so the top of the letters is not cut
   const storeTop = (6.63 - 0.895 * storeFs).toFixed(2);
   const flat = labels.flatMap((l) => Array.from({ length: l.qty }, () => l));
   const money = (n) => (Number(n) || 0).toFixed(2);
@@ -320,10 +321,10 @@ function marcLabelsHtml(labels, { storeName = '', fields: f, cols = 2 }) {
     .lbl { position: absolute; top: 0; width: ${lw}mm; height: 25mm; overflow: hidden; }
     .t { position: absolute; line-height: 1; white-space: nowrap; overflow: hidden; font-weight: 700; }
     .t span { display: inline-block; transform: scaleX(.85); transform-origin: left; }
-    .store { left: 0; width: ${lw}mm; top: ${storeTop}mm; text-align: center; font: 900 ${storeFs}mm/1 'Arial Black', Arial, sans-serif; letter-spacing: .3mm; text-transform: uppercase; text-overflow: clip; }
+    .store { left: 0; width: ${lw}mm; top: ${storeTop}mm; text-align: center; font: 700 ${storeFs}mm/1 Arial, Helvetica, sans-serif; letter-spacing: .3mm; text-transform: uppercase; text-overflow: clip; }
     .bc { position: absolute; top: 7.5mm; text-align: center; }
     .bc svg { display: block; }
-    .code { font: 700 2.6mm/1 Arial, sans-serif; -webkit-text-stroke: .04mm #000; letter-spacing: .15mm; margin-top: .3mm; white-space: nowrap; }
+    .code { font: 700 2.2mm/1 Arial, sans-serif; letter-spacing: .12mm; margin-top: .3mm; white-space: nowrap; }
     .sku { position: absolute; left: 34.3mm; top: .8mm; width: 2.6mm; height: 13.5mm; writing-mode: vertical-rl; transform: rotate(180deg); font: 700 2.6mm/1 Arial, sans-serif; white-space: nowrap; overflow: hidden; }
     .mrp { left: 1.4mm; top: 17.4mm; font-size: 3.5mm; width: 21mm; }
     .item { left: 21.75mm; top: 17.7mm; font-size: 2.2mm; width: ${lw - 22.25}mm; display: flex; align-items: baseline; gap: .6mm; }
