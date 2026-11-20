@@ -36,8 +36,8 @@ export default function BarcodePrinting() {
   const [batch, setBatch] = useState('');
   const total = queue.reduce((a, q) => a + (Number(q.qty) || 0), 0);
   // accessories always print on their own 75 x 24 mm roll, whatever size is chosen for the rest: 2 across by default
-  const [ACC, setAccState] = useState(() => { const v = localStorage.getItem('accLabelSizeV2'); return LABEL_SIZES[v]?.design === 'acc' ? v : 'ACC-3up'; }); // default: 3 across on the 3-column roll
-  const setAcc = (v) => { localStorage.setItem('accLabelSizeV2', v); setAccState(v); };
+  const [ACC, setAccState] = useState(() => { const v = localStorage.getItem('accLabelSizeV3'); return LABEL_SIZES[v]?.design === 'acc' ? v : 'ACC-LR'; }); // default: 3-column roll, left + right, centre blank
+  const setAcc = (v) => { localStorage.setItem('accLabelSizeV3', v); setAccState(v); };
   const isAccSize = LABEL_SIZES[size]?.design === 'acc';
   const hasAcc = isAccSize || queue.some(isAccessory);
   const opts = (sz) => ({ size: sz, columns, storeName, fields, format: format || undefined, batch: batch.trim() });
@@ -88,7 +88,7 @@ export default function BarcodePrinting() {
           {hasAcc && (
             <div className="space-y-2 rounded-lg border border-ink-200 p-3 dark:border-ink-700">
               <div className="text-xs text-ink-500">Accessories print the <b>QR label</b> (brand, QR code, product code, name, MRP, Net Rs) on the <b>75 x 24 mm</b> roll. QR = product barcode, scans at the POS. Driver paper 75 x 24 mm, media type <b>Continuous</b> (no gap).</div>
-              {!isAccSize && <label className="block"><span className="label">Accessories label</span><select className="input" value={ACC} onChange={(e) => setAcc(e.target.value)}><option value="ACC-3up">3 across, 25 mm each</option><option value="ACC-LR">3-column roll: left + right only (centre blank)</option><option value="ACC-2up">2 across, 37.5 mm each</option><option value="ACC-75x24">1 across, 75 mm</option></select></label>}
+              {!isAccSize && <label className="block"><span className="label">Accessories label</span><select className="input" value={ACC} onChange={(e) => setAcc(e.target.value)}><option value="ACC-LR">3-column roll: left + right only (centre blank)</option><option value="ACC-2up">2 across, 37.5 mm each</option><option value="ACC-75x24">1 across, 75 mm</option></select></label>}
             </div>
           )}
           <div className="space-y-2">
