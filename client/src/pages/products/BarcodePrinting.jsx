@@ -11,8 +11,10 @@ import { inr, variantLabel } from '../../lib/format';
 
 export default function BarcodePrinting() {
   const { settings, company, branches, branchId } = useAuth();
-  // labels carry the selected branch's company name (Branches page), else the company name
-  const storeName = branches.find((x) => x._id === branchId)?.displayName || company?.name;
+  // labels carry the selected branch's name automatically: its "Company name (on bill & barcode)", else the branch name
+  // (same as the bill); company name only when no single branch is selected
+  const curBranch = branches.find((x) => x._id === branchId);
+  const storeName = curBranch?.displayName || curBranch?.name || company?.name;
   const location = useLocation();
   const b = settings?.barcode || {};
   const [queue, setQueue] = useState([]);
