@@ -6,7 +6,7 @@ import { post, errMsg } from '../../lib/api';
 import { useAuth } from '../../store/auth';
 import { PageHeader, ScanInput } from '../../components/common';
 import { Toggle, Empty } from '../../components/ui';
-import { LABEL_SIZES, labelsHtml, printHtml, isAccessory } from '../../lib/print';
+import { LABEL_SIZES, labelsHtml, printHtml, isAccessory, ACC_LR_CALIB, accLrCalib } from '../../lib/print';
 import { inr, variantLabel } from '../../lib/format';
 
 export default function BarcodePrinting() {
@@ -42,8 +42,14 @@ export default function BarcodePrinting() {
   const setAcc = (v) => { localStorage.setItem('accLabelSizeV3', v); setAccState(v); };
   const isAccSize = LABEL_SIZES[size]?.design === 'acc';
   const hasAcc = isAccSize || queue.some(isAccessory);
-  const opts = (sz) => ({ size: sz, columns, storeName, fields, format: format || undefined, batch: batch.trim() });
-  const preview = useMemo(() => (queue[0] ? labelsHtml([{ ...queue[0], qty: 1 }], opts(isAccessory(queue[0]) && !isAccSize ? ACC : size)) : ''), [queue[0], size, ACC, fields, format, storeName, batch]);
+  // 3-across accessories roll measured on this PC's real roll (sticker size, gap between stickers, nudge)
+  const [calib, setCalibState] = useState(() => { try { return accLrCalib(JSON.parse(localStorage.getItem('accLrCalibV1') || '{}')); } catch { return { ...ACC_LR_CALIB }; } });
+  const setCalib = (k, v) => { const next = { ...calib, [k]: v }; setCalibState(next); localStorage.setItem('accLrCalibV1', JSON.stringify(next)); };
+  const calibOk = accLrCalib(calib);
+  const usesLR = (isAccSize ? size : ACC) === 'ACC-LR';
+  const opts = (sz) => ({ size: sz, columns, storeName, fields, format: format || undefined, batch: batch.trim(), accCalib: calibOk });
+  const previewLabel = queue[0] && (isAccSize || isAccessory(queue[0]) ? queue[0] : null);
+  const preview = useMemo(() => (queue[0] ? labelsHtml([{ ...queue[0], qty: 1 }, ...(previewLabel && usesLR ? [{ ...queue[0], qty: 1 }] : [])], opts(isAccessory(queue[0]) && !isAccSize ? ACC : size)) : ''), [queue[0], size, ACC, fields, format, storeName, batch, JSON.stringify(calibOk)]);
 
   const print = async () => {
     if (!queue.length) return toast.error('Add products to print');
@@ -89,8 +95,24 @@ export default function BarcodePrinting() {
           <label className="block"><span className="label">Barcode format</span><select className="input" value={format} onChange={(e) => setFormat(e.target.value)}><option value="">As stored (per variant)</option><option value="CODE128">Code128 (force)</option></select></label>
           {hasAcc && (
             <div className="space-y-2 rounded-lg border border-ink-200 p-3 dark:border-ink-700">
-              <div className="text-xs text-ink-500">Accessories print the <b>QR label</b> (brand, QR code, product code, name, MRP, Net Rs) on the <b>75 x 24 mm</b> roll. QR = product barcode, scans at the POS. Driver paper 75 x 24 mm, media type <b>Continuous</b> (no gap).</div>
+              <div className="text-xs text-ink-500">Accessories print the <b>QR label</b> (brand, QR code, product code, name, MRP, Net Rs) on the <b>75 x 24 mm</b> roll. QR = product barcode, scans at the POS. {usesLR ? <> 3-across roll: set the roll size below.</> : <> Driver paper 75 x 24 mm, media type <b>Continuous</b> (no gap).</>}</div>
               {!isAccSize && <label className="block"><span className="label">Accessories label</span><select className="input" value={ACC} onChange={(e) => setAcc(e.target.value)}><option value="ACC-LR">3-column roll: left + right only (centre blank)</option><option value="ACC-2up">2 across, 37.5 mm each</option><option value="ACC-75x24">1 across, 75 mm</option></select></label>}
+              {usesLR && (
+                <div className="space-y-2 border-t border-ink-200 pt-2 dark:border-ink-700">
+                  <div className="text-xs font-semibold">3-across roll size (measure one sticker with a ruler, mm)</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[['w', 'Sticker width'], ['h', 'Sticker height'], ['gapX', 'Gap between stickers'], ['offX', 'Move right (−left)'], ['offY', 'Move down (−up)']].map(([k, l]) => (
+                      <label key={k} className="block"><span className="label">{l}</span>
+                        <input type="number" step="0.1" className="input input-sm" value={calib[k]} onChange={(e) => setCalib(k, e.target.value)} /></label>
+                    ))}
+                    <button type="button" className="btn-secondary self-end" onClick={() => { setCalibState({ ...ACC_LR_CALIB }); localStorage.removeItem('accLrCalibV1'); }}>Reset</button>
+                  </div>
+                  <div className="text-xs text-ink-500">
+                    Page = {Math.max(75, +(calibOk.offX + 3 * calibOk.w + 2 * calibOk.gapX).toFixed(1))} x {calibOk.h} mm (one row of 3 stickers). Printed: left at {calibOk.offX} mm, right at {+(calibOk.offX + 2 * (calibOk.w + calibOk.gapX)).toFixed(1)} mm.
+                    {' '}Driver: paper <b>{Math.max(75, +(calibOk.offX + 3 * calibOk.w + 2 * calibOk.gapX).toFixed(1))} x {calibOk.h} mm</b>, media type <b>Gap / Label</b> (die-cut roll), then calibrate once, so every row starts exactly on a sticker and labels never drift into the next sticker.
+                  </div>
+                </div>
+              )}
             </div>
           )}
           <div className="space-y-2">
@@ -98,7 +120,7 @@ export default function BarcodePrinting() {
               <Toggle key={k} checked={fields[k]} onChange={(c) => setFields({ ...fields, [k]: c })} label={l} />
             ))}
           </div>
-          <div className="text-xs text-ink-500">Printer: {settings?.printer?.labelPrinterName || 'choose your label printer in the print dialog'}. In the print dialog set Margins: None, Scale: 100% (not "Fit to page") and turn off Headers and footers. In the printer driver set the paper / stock size to the label size{size === 'MARC-1up' ? ' (38 x 25 mm)' : size === 'MARC-2up' ? ' (80 x 25 mm)' : isAccSize ? ' (75 x 24 mm, Continuous)' : LABEL_SIZES[size]?.sheet ? "" : ` (${LABEL_SIZES[size]?.w * columns + (columns - 1) * 2} x ${LABEL_SIZES[size]?.h} mm)`} with media type Gap / Label, and calibrate the gap sensor once.</div>
+          <div className="text-xs text-ink-500">Printer: {settings?.printer?.labelPrinterName || 'choose your label printer in the print dialog'}. In the print dialog set Margins: None, Scale: 100% (not "Fit to page") and turn off Headers and footers. In the printer driver set the paper / stock size to the label size{size === 'MARC-1up' ? ' (38 x 25 mm)' : size === 'MARC-2up' ? ' (80 x 25 mm)' : isAccSize && usesLR ? ' (see the 3-across roll size above, Gap / Label)' : isAccSize ? ' (75 x 24 mm, Continuous)' : LABEL_SIZES[size]?.sheet ? "" : ` (${LABEL_SIZES[size]?.w * columns + (columns - 1) * 2} x ${LABEL_SIZES[size]?.h} mm)`} with media type Gap / Label, and calibrate the gap sensor once.</div>
           {preview && <div><div className="label">Preview</div><iframe title="preview" srcDoc={preview} className="h-40 w-full rounded-lg border border-ink-200 bg-white dark:border-ink-700" /></div>}
         </div>
       </div>

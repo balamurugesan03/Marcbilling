@@ -252,7 +252,7 @@ export const LABEL_SIZES = {
   'MARC-1up': { w: 38, h: 25, label: 'MARC design - 38 x 25 mm (1 across)', design: 'marc', cols: 1 },
   'MARC-2up': { w: 38.5, h: 25, label: 'MARC design - 2 across (80 x 25 mm roll)', design: 'marc', cols: 2 },
   // accessories, 75 x 24 mm roll; slots = left edge of each sticker printed (mm)
-  'ACC-LR': { w: 25, h: 24, label: 'Accessories - 3-column roll (3 x 25 mm): left + right only, centre blank', design: 'acc', slots: [0, 50] },
+  'ACC-LR': { w: 25, h: 24, label: 'Accessories - 3-column roll (3 across): left + right only, centre blank', design: 'acc', slots: [0, 50] },
   'ACC-2up': { w: 37.5, h: 24, label: 'Accessories - 2 across on 75 x 24 mm (no gap)', design: 'acc', slots: [0, 37.5] },
   'ACC-75x24': { w: 75, h: 24, label: 'Accessories - 75 x 24 mm (1 across, no gap)', design: 'acc', slots: [0] },
   '50x25':{ w: 50, h: 25, label: '50 x 25 mm (roll)' },
@@ -355,16 +355,33 @@ function qrSvg(text, sizeMm) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${total}" width="${sizeMm}mm" height="${sizeMm}mm" shape-rendering="crispEdges"><rect width="${total}" height="${total}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
 }
 
-function accLabelsHtml(labels, { storeName = '', fields: f, slots = [0], w = 75 }) {
+/** 3-column accessories roll as measured on the real roll (mm). Defaults = 3 x 25 x 24 with no gaps (the old fixed layout). */
+export const ACC_LR_CALIB = { w: 25, h: 24, gapX: 0, offX: 0, offY: 0 };
+export const accLrCalib = (c = {}) => {
+  const n = (v, d, lo, hi) => { const x = Number(v); return Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : d; };
+  return { w: n(c.w, 25, 18, 30), h: n(c.h, 24, 15, 30), gapX: n(c.gapX, 0, 0, 6), offX: n(c.offX, 0, -3, 5), offY: n(c.offY, 0, -3, 3) };
+};
+
+function accLabelsHtml(labels, { storeName = '', fields: f, slots = [0], w = 75, calib = null }) {
   // Fixed grid (mm), the same margin on all four sides; every box clips its own text so nothing leaves its sticker.
-  // slots: left edge (mm) of each sticker printed on one 75 x 24 mm row; anything between them stays blank
-  // (3-column roll: slots [0, 50] prints the left and right stickers, the centre sticker is never touched).
-  const W = w; // sticker width; height is always 24
+  // slots: left edge (mm) of each sticker printed on one row; anything between them stays blank.
+  // 3-column roll (calib given): stickers sit at offX, offX + (w + gap), offX + 2 (w + gap); left and right are printed,
+  // the centre is never touched. Each sticker is its own fixed w x h box, so nothing can run into the next one.
+  const c = calib ? accLrCalib(calib) : null;
+  const W = c ? c.w : w; // sticker width
+  const H = c ? c.h : 24; // sticker height = one printed page (one row of stickers)
+  const pitch = c ? c.w + c.gapX : 0;
+  if (c) slots = [c.offX, c.offX + 2 * pitch];
+  const pageW = c ? Math.max(75, Math.ceil((c.offX + 3 * c.w + 2 * c.gapX) * 10) / 10) : 75;
+  const top = c ? c.offY : 0;
   const narrow = W < 30; // 25 mm sticker of the 3-column roll
   const M = narrow ? 1 : 1.2;
-  const G = narrow
+  const sy = H / 24; // shorter / taller sticker: the same layout scaled to its height (QR never grows past its width)
+  const G0 = narrow
     ? { brandTop: M, brandH: 3.4, qrTop: 4.6, qr: 9.6, codeRowTop: 14.5, mrpTop: 17.2, netTop: 20 }
     : { brandTop: M, brandH: 3.8, qrTop: 5.0, qr: 10.8, mrpTop: 16.5, netTop: 19.5 };
+  const G = sy === 1 ? G0 : Object.fromEntries(Object.entries(G0).map(([k, v]) => [k, k === 'brandTop' ? v : v * sy]));
+  G.qr = Math.min(G.qr, W - 2 * M - 4); // QR always fully inside its own sticker
   const gap = narrow ? 0.8 : W < 50 ? 1.2 : 1.8; // QR -> text
   const infoL = M + G.qr + gap;
   const infoW = W - infoL - M;
@@ -392,7 +409,7 @@ function accLabelsHtml(labels, { storeName = '', fields: f, slots = [0], w = 75 
     const mrp = `MRP : ${money(l.mrp)}`;
     const net = `Net Rs: ${money(l.sellingPrice)}`;
     const codeDiv = f.showSku ? `<div class="code" data-fit style="font-size:${px(codeFs)}mm">${esc(code)}</div>` : '';
-    return `<div class="lbl" style="left:${slots[i]}mm">
+    return `<div class="lbl" style="left:${px(slots[i])}mm">
       ${brand ? `<div class="brand" data-fit style="font-size:${px(fit(brand, G.brandH / 1.65, fullW, 0.7))}mm">${esc(brand)}</div>` : ''}
       <div class="qr">${qrSvg(code, G.qr)}</div>
       <div class="info">
@@ -407,15 +424,18 @@ function accLabelsHtml(labels, { storeName = '', fields: f, slots = [0], w = 75 
   const rows = [];
   for (let i = 0; i < flat.length; i += slots.length) rows.push(flat.slice(i, i + slots.length));
   return `<!doctype html><html><head><meta charset="utf-8"><title>Labels</title><style>
-    @page { size: 75mm 24mm; margin: 0; }
+    @page { size: ${pageW}mm ${H}mm; margin: 0; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { font-family: Arial, Helvetica, sans-serif; color: #000; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    html, body { width: 75mm; overflow: hidden; }
-    /* a row exactly as tall as the page makes Chrome round over and push out a blank page after every row
-       (printer then skips a sticker row): keep the row a hair shorter and break *before* each next row instead */
-    .row { position: relative; width: 75mm; height: 23.9mm; overflow: hidden; break-inside: avoid; page-break-inside: avoid; }
+    html, body { width: ${pageW}mm; overflow: hidden; }
+    /* one page = one row of stickers. A row exactly as tall as the page makes Chrome round over and push out a blank
+       page after every row (printer then skips a sticker row): keep the row a hair shorter and break *before* each next row */
+    .row { position: relative; width: ${pageW}mm; height: ${px(H - 0.1)}mm; overflow: hidden; break-inside: avoid; page-break-inside: avoid; }
     .row + .row { break-before: page; page-break-before: always; }
-    .lbl { position: absolute; top: 0; width: ${W}mm; height: 23.9mm; overflow: hidden; }
+    .lbl { position: absolute; top: ${px(top)}mm; width: ${px(W)}mm; height: ${px(H - 0.1)}mm; overflow: hidden; contain: strict; }
+    ${c ? `/* preview only (never printed): every sticker outlined, the blank centre one too */
+    @media screen { .lbl, .blank { outline: .15mm dashed #9aa; } .blank { position: absolute; top: ${px(top)}mm; left: ${px(c.offX + pitch)}mm; width: ${px(W)}mm; height: ${px(H - 0.1)}mm; } }
+    @media print { .blank { display: none; } }` : ''}
     .lbl > div { position: absolute; overflow: hidden; }
     .brand { left: ${M}mm; width: ${fullW}mm; top: ${G.brandTop}mm; height: ${G.brandH}mm; line-height: ${G.brandH}mm; text-align: center; font-weight: 600; letter-spacing: .1mm; white-space: nowrap; }
     .qr { left: ${M}mm; top: ${G.qrTop}mm; width: ${G.qr}mm; height: ${G.qr}mm; }
@@ -426,8 +446,8 @@ function accLabelsHtml(labels, { storeName = '', fields: f, slots = [0], w = 75 
     .name { flex: none; margin-top: .5mm; font-weight: 700; line-height: 1.12; overflow: hidden; word-break: break-word; }
     .mrp, .net { left: ${M}mm; width: ${fullW}mm; white-space: nowrap; line-height: 1.05; }
     .mrp { top: ${G.mrpTop}mm; height: ${px(G.netTop - G.mrpTop)}mm; font-weight: 700; }
-    .net { top: ${G.netTop}mm; height: ${px(24 - M - G.netTop)}mm; font-weight: 900; }
-  </style></head><body>${rows.map((r) => `<div class="row">${r.map(label).join('')}</div>`).join('')}
+    .net { top: ${px(G.netTop)}mm; height: ${px(H - 0.1 - M - G.netTop)}mm; font-weight: 900; }
+  </style></head><body>${rows.map((r) => `<div class="row">${r.map(label).join('')}${c ? '<div class="blank"></div>' : ''}</div>`).join('')}
   <script>
     // last check before printing: any text that would be cut shrinks until it fits its box (never below 1.4 mm)
     document.querySelectorAll('[data-fit]').forEach(function (el) {
@@ -438,11 +458,11 @@ function accLabelsHtml(labels, { storeName = '', fields: f, slots = [0], w = 75 
   </script></body></html>`;
 }
 
-export function labelsHtml(labels, { size = '50x25', columns = 1, storeName = '', fields = {}, format, batch = '' } = {}) {
+export function labelsHtml(labels, { size = '50x25', columns = 1, storeName = '', fields = {}, format, batch = '', accCalib = null } = {}) {
   const s = LABEL_SIZES[size] || LABEL_SIZES['50x25'];
   if (s.design) {
     const f = { showStoreName: true, showProductName: true, showSku: true, showSizeColor: true, showMrp: true, showSellingPrice: true, ...fields };
-    return s.design === 'acc' ? accLabelsHtml(labels, { storeName, fields: f, slots: s.slots || [0], w: s.w }) : marcLabelsHtml(labels, { storeName, fields: f, cols: s.cols || 2 });
+    return s.design === 'acc' ? accLabelsHtml(labels, { storeName, fields: f, slots: s.slots || [0], w: s.w, calib: size === 'ACC-LR' ? (accCalib || ACC_LR_CALIB) : null }) : marcLabelsHtml(labels, { storeName, fields: f, cols: s.cols || 2 });
   }
   const small = s.h < 24;
   const f = { showStoreName: true, showProductName: true, showSku: true, showSizeColor: true, showMrp: true, showSellingPrice: true, ...fields };
