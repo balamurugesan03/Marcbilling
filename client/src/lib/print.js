@@ -408,9 +408,12 @@ function accLabelsHtml(labels, { storeName = '', fields: f, slots = [0], w = 75 
     @page { size: 75mm 24mm; margin: 0; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { font-family: Arial, Helvetica, sans-serif; color: #000; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .row { position: relative; width: 75mm; height: 24mm; overflow: hidden; break-after: page; page-break-after: always; }
-    .row:last-child { break-after: auto; page-break-after: auto; }
-    .lbl { position: absolute; top: 0; width: ${W}mm; height: 24mm; overflow: hidden; }
+    html, body { width: 75mm; overflow: hidden; }
+    /* a row exactly as tall as the page makes Chrome round over and push out a blank page after every row
+       (printer then skips a sticker row): keep the row a hair shorter and break *before* each next row instead */
+    .row { position: relative; width: 75mm; height: 23.9mm; overflow: hidden; break-inside: avoid; page-break-inside: avoid; }
+    .row + .row { break-before: page; page-break-before: always; }
+    .lbl { position: absolute; top: 0; width: ${W}mm; height: 23.9mm; overflow: hidden; }
     .lbl > div { position: absolute; overflow: hidden; }
     .brand { left: ${M}mm; width: ${fullW}mm; top: ${G.brandTop}mm; height: ${G.brandH}mm; line-height: ${G.brandH}mm; text-align: center; font-weight: 600; letter-spacing: .1mm; white-space: nowrap; }
     .qr { left: ${M}mm; top: ${G.qrTop}mm; width: ${G.qr}mm; height: ${G.qr}mm; }
