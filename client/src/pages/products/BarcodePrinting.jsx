@@ -38,18 +38,20 @@ export default function BarcodePrinting() {
   const [batch, setBatch] = useState('');
   const total = queue.reduce((a, q) => a + (Number(q.qty) || 0), 0);
   // accessories always print on their own 75 x 24 mm roll, whatever size is chosen for the rest: 2 across by default
-  const [ACC, setAccState] = useState(() => { const v = localStorage.getItem('accLabelSizeV3'); return LABEL_SIZES[v]?.design === 'acc' ? v : 'ACC-LR'; }); // default: 3-column roll, left + right, centre blank
-  const setAcc = (v) => { localStorage.setItem('accLabelSizeV3', v); setAccState(v); };
+  const [ACC, setAccState] = useState(() => { const v = localStorage.getItem('accLabelSizeV4'); return LABEL_SIZES[v]?.design === 'acc' ? v : 'ACC-FINAL'; }); // default: Accessories Final (left + right, centre blank)
+  const setAcc = (v) => { localStorage.setItem('accLabelSizeV4', v); setAccState(v); };
   const isAccSize = LABEL_SIZES[size]?.design === 'acc';
   const hasAcc = isAccSize || queue.some(isAccessory);
   // 3-across accessories roll measured on this PC's real roll (sticker size, gap between stickers, nudge)
   const [calib, setCalibState] = useState(() => { try { return accLrCalib(JSON.parse(localStorage.getItem('accLrCalibV1') || '{}')); } catch { return { ...ACC_LR_CALIB }; } });
   const setCalib = (k, v) => { const next = { ...calib, [k]: v }; setCalibState(next); localStorage.setItem('accLrCalibV1', JSON.stringify(next)); };
   const calibOk = accLrCalib(calib);
-  const usesLR = (isAccSize ? size : ACC) === 'ACC-LR';
+  const accSz = isAccSize ? size : ACC;
+  const usesLR = accSz === 'ACC-LR'; // calibration panel
+  const twoSide = usesLR || accSz === 'ACC-FINAL'; // left + right stickers, centre blank
   const opts = (sz) => ({ size: sz, columns, storeName, fields, format: format || undefined, batch: batch.trim(), accCalib: calibOk });
   const previewLabel = queue[0] && (isAccSize || isAccessory(queue[0]) ? queue[0] : null);
-  const preview = useMemo(() => (queue[0] ? labelsHtml([{ ...queue[0], qty: 1 }, ...(previewLabel && usesLR ? [{ ...queue[0], qty: 1 }] : [])], opts(isAccessory(queue[0]) && !isAccSize ? ACC : size)) : ''), [queue[0], size, ACC, fields, format, storeName, batch, JSON.stringify(calibOk)]);
+  const preview = useMemo(() => (queue[0] ? labelsHtml([{ ...queue[0], qty: 1 }, ...(previewLabel && twoSide ? [{ ...queue[0], qty: 1 }] : [])], opts(isAccessory(queue[0]) && !isAccSize ? ACC : size)) : ''), [queue[0], size, ACC, fields, format, storeName, batch, JSON.stringify(calibOk)]);
 
   const print = async () => {
     if (!queue.length) return toast.error('Add products to print');
@@ -95,8 +97,8 @@ export default function BarcodePrinting() {
           <label className="block"><span className="label">Barcode format</span><select className="input" value={format} onChange={(e) => setFormat(e.target.value)}><option value="">As stored (per variant)</option><option value="CODE128">Code128 (force)</option></select></label>
           {hasAcc && (
             <div className="space-y-2 rounded-lg border border-ink-200 p-3 dark:border-ink-700">
-              <div className="text-xs text-ink-500">Accessories print the <b>QR label</b> (brand, QR code, product code, name, MRP, Net Rs) on the <b>75 x 24 mm</b> roll. QR = product barcode, scans at the POS. {usesLR ? <> 3-across roll: set the roll size below.</> : <> Driver paper 75 x 24 mm, media type <b>Continuous</b> (no gap).</>}</div>
-              {!isAccSize && <label className="block"><span className="label">Accessories label</span><select className="input" value={ACC} onChange={(e) => setAcc(e.target.value)}><option value="ACC-LR">3-column roll: left + right only (centre blank)</option><option value="ACC-2up">2 across, 37.5 mm each</option><option value="ACC-75x24">1 across, 75 mm</option></select></label>}
+              <div className="text-xs text-ink-500">Accessories print the <b>QR label</b> (brand, QR code, product code, name, MRP, Net Rs) on the <b>75 x 24 mm</b> roll. QR = product barcode, scans at the POS. {accSz === 'ACC-FINAL' ? <> Accessories Final: prints LEFT + RIGHT stickers only, centre always blank. Print dialog: paper <b>75 x 24 mm</b>, margins <b>None</b>, scale <b>100</b>.</> : usesLR ? <> 3-across roll: set the roll size below.</> : <> Driver paper 75 x 24 mm, media type <b>Continuous</b> (no gap).</>}</div>
+              {!isAccSize && <label className="block"><span className="label">Accessories label</span><select className="input" value={ACC} onChange={(e) => setAcc(e.target.value)}><option value="ACC-FINAL">Accessories Final: left + right only (centre blank)</option><option value="ACC-LR">3-column roll: left + right only (centre blank)</option><option value="ACC-2up">2 across, 37.5 mm each</option><option value="ACC-75x24">1 across, 75 mm</option></select></label>}
               {usesLR && (
                 <div className="space-y-2 border-t border-ink-200 pt-2 dark:border-ink-700">
                   <div className="text-xs font-semibold">3-across roll size (measure one sticker with a ruler, mm)</div>

@@ -252,6 +252,8 @@ export const LABEL_SIZES = {
   'MARC-1up': { w: 38, h: 25, label: 'MARC design - 38 x 25 mm (1 across)', design: 'marc', cols: 1 },
   'MARC-2up': { w: 38.5, h: 25, label: 'MARC design - 2 across (80 x 25 mm roll)', design: 'marc', cols: 2 },
   // accessories, 75 x 24 mm roll; slots = left edge of each sticker printed (mm)
+  // Accessories Final: fixed 75 x 24 page = 3 stickers of 25 x 24; prints LEFT (0-25) + RIGHT (50-75) only, centre (25-50) never drawn
+  'ACC-FINAL': { w: 25, h: 24, label: 'Accessories Final - left + right only, centre blank (75 x 24)', design: 'acc', slots: [0, 50] },
   'ACC-LR': { w: 25, h: 24, label: 'Accessories - 3-column roll (3 across): left + right only, centre blank', design: 'acc', slots: [0, 50] },
   'ACC-2up': { w: 37.5, h: 24, label: 'Accessories - 2 across on 75 x 24 mm (no gap)', design: 'acc', slots: [0, 37.5] },
   'ACC-75x24': { w: 75, h: 24, label: 'Accessories - 75 x 24 mm (1 across, no gap)', design: 'acc', slots: [0] },
@@ -462,7 +464,7 @@ export function labelsHtml(labels, { size = '50x25', columns = 1, storeName = ''
   const s = LABEL_SIZES[size] || LABEL_SIZES['50x25'];
   if (s.design) {
     const f = { showStoreName: true, showProductName: true, showSku: true, showSizeColor: true, showMrp: true, showSellingPrice: true, ...fields };
-    return s.design === 'acc' ? accLabelsHtml(labels, { storeName, fields: f, slots: s.slots || [0], w: s.w, calib: size === 'ACC-LR' ? (accCalib || ACC_LR_CALIB) : null }) : marcLabelsHtml(labels, { storeName, fields: f, cols: s.cols || 2 });
+    return s.design === 'acc' ? accLabelsHtml(labels, { storeName, fields: f, slots: s.slots || [0], w: s.w, calib: size === 'ACC-LR' ? (accCalib || ACC_LR_CALIB) : size === 'ACC-FINAL' ? ACC_LR_CALIB : null }) : marcLabelsHtml(labels, { storeName, fields: f, cols: s.cols || 2 });
   }
   const small = s.h < 24;
   const f = { showStoreName: true, showProductName: true, showSku: true, showSizeColor: true, showMrp: true, showSellingPrice: true, ...fields };
