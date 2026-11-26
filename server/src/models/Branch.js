@@ -9,6 +9,8 @@ const branchSchema = new Schema({
   parentId: { type: Schema.Types.ObjectId, ref: 'Branch', default: null },
   // company name printed on this branch's bills and barcode labels (empty = branch / company name)
   displayName: { type: String, trim: true },
+  // logo printed on this branch's bills (empty = the default store logo)
+  logoUrl: { type: String, trim: true },
   code: { type: String, required: true, uppercase: true, trim: true },
   gstin: { type: String, uppercase: true, trim: true },
   phone: String,

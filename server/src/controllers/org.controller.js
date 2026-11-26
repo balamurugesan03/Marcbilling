@@ -9,6 +9,10 @@ module.exports = {
   updateCompany: asyncHandler(async (req, res) => ok(res, await org.updateCompany(req, req.body))),
   uploadLogo: asyncHandler(async (req, res) => ok(res, await org.updateCompany(req, { logoUrl: `/uploads/${req.file.filename}` }))),
 
+  uploadBranchLogo: asyncHandler(async (req, res) => {
+    if (!req.file) throw ApiError.badRequest('Choose a logo image');
+    ok(res, { logoUrl: `/uploads/${req.file.filename}` });
+  }),
   listBranches: asyncHandler(async (req, res) => ok(res, await org.listBranches(req))),
   createBranch: asyncHandler(async (req, res) => ok(res, await org.createBranch(req, req.body), 201)),
   updateBranch: asyncHandler(async (req, res) => ok(res, await org.updateBranch(req, req.params.id, req.body))),

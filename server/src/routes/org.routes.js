@@ -14,6 +14,8 @@ companies.post('/current/clear-data', permit('backup.manage'), c.clearData);
 
 const branches = express.Router();
 branches.get('/', c.listBranches);
+// upload only: returns the image URL, saved on the branch with the form (works before a new branch exists)
+branches.post('/logo', permit('branch.create', 'branch.edit'), imageUpload.single('logo'), c.uploadBranchLogo);
 branches.post('/', permit('branch.create'), validate(v.org.branch), c.createBranch);
 branches.put('/:id', permit('branch.edit'), validate(v.org.branch.partial()), c.updateBranch);
 branches.delete('/:id', permit('branch.delete'), c.deleteBranch);

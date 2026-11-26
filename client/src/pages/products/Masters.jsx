@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Plus, Pencil, Trash2, FolderTree, Award, Truck, Store, Receipt } from 'lucide-react';
+import { Plus, Pencil, Trash2, FolderTree, Award, Truck, Store, Receipt, Upload } from 'lucide-react';
 import { get, post, put, del, errMsg } from '../../lib/api';
 import { useAuth } from '../../store/auth';
 import { confirm } from '../../store/ui';
@@ -64,6 +64,7 @@ const CONFIG = {
       { name: 'type', label: 'Branch type', type: 'select', options: [{ value: 'main', label: 'Main branch' }, { value: 'sub', label: 'Sub branch' }], hint: 'Only one main branch — choosing Main moves the current main under it' },
       { name: 'name', label: 'Branch name', required: true }, { name: 'code', label: 'Code', required: true, upper: true },
       { name: 'displayName', label: 'Company name (on bill & barcode)', span: 2, hint: 'Printed on this branch\'s bills and barcode labels. Empty = branch name' },
+      { name: 'logoUrl', label: 'Bill logo', type: 'image', upload: '/branches/logo', hint: 'Printed on the left of this branch\'s bills, same size as now. Empty = default store logo' },
       { name: 'gstin', label: 'GSTIN', upper: true },
       { name: 'stateCode', label: 'State code', hint: 'e.g. 33 (Tamil Nadu), 32 (Kerala)' }, { name: 'phone', label: 'Phone' }, { name: 'email', label: 'Email' },
       { name: 'managerName', label: 'Manager' }, ...addr(), { name: 'active', label: 'Active', type: 'toggle' },
@@ -123,6 +124,27 @@ function MasterForm({ cfg, doc, onClose, onSaved }) {
         {cfg.fields.filter((fl) => !(fl.createOnly && doc)).map((fl) => {
           const span = fl.span === 2 ? 'col-span-2' : 'col-span-2 sm:col-span-1';
           const v = getPath(f, fl.name);
+          if (fl.type === 'image') return (
+            <div key={fl.name} className="col-span-2 sm:col-span-4">
+              <div className="mb-1 text-sm font-medium">{fl.label}</div>
+              <div className="flex items-center gap-3">
+                <div className="flex h-20 w-20 items-center justify-center rounded-lg border border-dashed border-ink-300 bg-white p-1">
+                  {v ? <img src={v} alt="logo" className="max-h-full max-w-full object-contain" /> : <span className="text-xs text-ink-400">No logo</span>}
+                </div>
+                <label className="btn-secondary cursor-pointer"><Upload className="h-4 w-4" /> {busy ? 'Uploading…' : 'Upload logo'}
+                  <input type="file" accept="image/*" className="hidden" disabled={busy} onChange={async (e) => {
+                    const file = e.target.files[0]; e.target.value = '';
+                    if (!file) return;
+                    const fd = new FormData(); fd.append('logo', file);
+                    setBusy(true);
+                    try { const r = await post(fl.upload, fd); setF((cur) => setPath(cur, fl.name, r.logoUrl)); toast.success('Logo uploaded — click Save'); } catch (err) { toast.error(errMsg(err)); } finally { setBusy(false); }
+                  }} />
+                </label>
+                {v && <button type="button" className="btn-ghost text-rose-600" onClick={() => setF(setPath(f, fl.name, ''))}>Remove</button>}
+              </div>
+              {fl.hint && <div className="mt-1 text-xs text-ink-500">{fl.hint}</div>}
+            </div>
+          );
           if (fl.type === 'toggle') return <div key={fl.name} className="col-span-2 sm:col-span-4"><Toggle checked={v !== false} onChange={(c) => setF(setPath(f, fl.name, c))} label={fl.label} /></div>;
           if (fl.type === 'select') return <Select key={fl.name} className={span} label={fl.label} hint={fl.hint} value={v ?? ''} onChange={(e) => setF(setPath(f, fl.name, e.target.value))} options={fl.options} />;
           if (fl.type === 'parent') return <Select key={fl.name} className="col-span-2" label={fl.label} value={(v && v._id) || v || ''} onChange={(e) => setF(setPath(f, fl.name, e.target.value))} placeholder="— Top-level category —" options={parents.map((p) => ({ value: p._id, label: p.name }))} />;

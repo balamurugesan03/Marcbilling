@@ -6,6 +6,8 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const m = (n) => (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const absUrl = (u) => (u && u.startsWith('/') ? `${window.location.origin}${u}` : u);
 const PRINT_LOGO = '/loginimage.jpeg';
+// each branch can have its own bill logo (Branches -> Bill logo); empty = the default store logo
+const billLogo = (branch) => absUrl(branch?.logoUrl || PRINT_LOGO);
 const STORE_ADDRESS = 'Vellayani Jn, Trivandrum';
 const STORE_PHONE = '7907858891';
 const STORE_TAGLINE = 'the family fashion';
@@ -126,7 +128,7 @@ export function receiptHtml(inv, { width = '80', duplicate = false } = {}) {
     .thanks { margin-top: 4px; text-align: center; font-size: ${font + 1}px; font-weight: 900; }
   </style></head><body>
     <div class="head">
-      <img src="${esc(absUrl(PRINT_LOGO))}" alt="" onerror="this.style.display='none'">
+      <img src="${esc(billLogo(branch))}" alt="" onerror="this.style.display='none'">
       <div class="info">
         <div class="store">${esc(branchTitle(branch, company))}</div>
         <div class="tag">${esc(STORE_TAGLINE)}</div>
@@ -193,7 +195,7 @@ export function a4InvoiceHtml(inv, { duplicate = false } = {}) {
   </style></head><body>
     <div class="head">
       <div>
-        ${logo ? `<img class="logo" src="${esc(absUrl(PRINT_LOGO))}" alt="${esc(company?.name)}">` : `<h1>${esc(branchTitle(branch, company))}</h1>`}
+        ${logo ? `<img class="logo" src="${esc(billLogo(branch))}" alt="${esc(company?.name)}">` : `<h1>${esc(branchTitle(branch, company))}</h1>`}
         ${logo ? `<div class="b" style="font-size:16px">${esc(branchTitle(branch, company))}</div>` : ''}
         <div class="muted">${esc(branchAddress(branch))}</div>
         <div class="muted">Phone: ${esc(branchPhone(branch))} ${company?.email ? `· ${esc(company.email)}` : ''}</div>
