@@ -97,7 +97,7 @@ export function receiptHtml(inv, { width = '80', duplicate = false } = {}) {
     return { r, taxable: sum('taxable'), cgst: sum('cgst'), sgst: sum('sgst'), igst: sum('igst') };
   });
   // return / exchange policy text is not printed on the bill; only "No Refund" when returns are off
-  const policy = settings?.returnPolicy?.enabled ? [] : ['No Refund'];
+  const qtyText = (q) => { const n = Number(q) || 0; return Number.isInteger(n) ? String(n) : n.toFixed(2); };
   const row = (k, v, cls = '') => `<tr class="${cls}"><td>${k}</td><td class="r">${v}</td></tr>`;
   // thermal printers fade thin strokes: heavy font, bold everywhere, pure black, solid rules
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(sale.invoiceNumber)}</title><style>
@@ -115,13 +115,20 @@ export function receiptHtml(inv, { width = '80', duplicate = false } = {}) {
     .title { margin: 3px 0 2px; font-size: ${font + 3}px; font-weight: 900; letter-spacing: 1px; text-align: center; }
     .dup { border: 1.5px solid #000; padding: 0 4px; display: inline-block; font-size: ${font - 1}px; }
     .box { border: 1.5px solid #000; }
-    .items th { border-bottom: 1.5px solid #000; font-size: ${font - 0.5}px; text-align: right; white-space: nowrap; }
-    .items th:first-child, .items td:first-child { text-align: left; }
-    .items td { text-align: right; white-space: nowrap; }
-    .items td:first-child { white-space: normal; word-break: break-word; }
-    .items tbody tr + tr td { border-top: 1px dotted #000; }
+    /* item grid: every cell boxed, fixed column widths so MRP / Qty / Rate / Amount always line up */
+    .items { table-layout: fixed; border: 1.5px solid #000; }
+    .items th, .items td { border: 1px solid #000; padding: 2px ${w === 58 ? 1 : 2}px; overflow: hidden; }
+    .items th { font-size: ${font - 1.5}px; font-weight: 900; text-align: center; white-space: nowrap; background: #000; color: #fff !important; }
+    .items td { text-align: right; white-space: nowrap; font-size: ${w === 58 ? font - 2 : font - 1}px; vertical-align: middle; letter-spacing: ${w === 58 ? -0.2 : 0}px; }
+    .items td.q { text-align: center; }
+    .items td.it { text-align: left; white-space: normal; word-break: break-word; vertical-align: top; }
+    .items .cd { font-weight: 900; } .items .nm { font-size: ${font - 2}px; line-height: 1.15; }
     .sum { margin-top: 2px; } .sum td { padding: 0 2px; }
-    .total td { font-size: ${font + 4}px; font-weight: 900; border-top: 1.5px solid #000; padding-top: 2px; }
+    .total td { font-size: ${w === 58 ? font + 2 : font + 4}px; font-weight: 900; padding: 2px 4px; white-space: nowrap; background: #000; color: #fff !important; }
+    .hl td { font-size: ${w === 58 ? font + 1 : font + 2}px; font-weight: 900; padding: 2px 4px; white-space: nowrap; border-top: 2px solid #000; border-bottom: 2px solid #000; }
+    .hl td:first-child { border-left: 2px solid #000; } .hl td:last-child { border-right: 2px solid #000; }
+    .sp td { height: 3px; padding: 0; }
+    .policy { margin-top: 2px; text-align: center; font-size: ${font - 3}px; font-weight: 700; }
     .gst { margin-top: 3px; } .gst td { padding: 0 3px; font-size: ${font - 0.5}px; }
     .gst .h td { border-bottom: 1.5px solid #000; text-align: center; font-weight: 900; }
     .foot { margin-top: 3px; } .foot td { padding: 0 2px; }
@@ -137,7 +144,6 @@ export function receiptHtml(inv, { width = '80', duplicate = false } = {}) {
         ${gstin ? `<div>GSTIN: ${esc(gstin)}</div>` : ''}
       </div>
     </div>
-    <div class="title">${esc(billModeTitle(sale.payments))}</div>
     ${duplicate ? '<div class="c"><span class="dup">DUPLICATE COPY</span></div>' : ''}
     <table>
       <tr><td>SlNo: <b>${esc(sale.invoiceNumber)}</b></td><td class="r">Date: ${esc(ddmmyyyy(sale.createdAt))}</td></tr>
@@ -145,16 +151,20 @@ export function receiptHtml(inv, { width = '80', duplicate = false } = {}) {
       ${sale.customer?.gstNumber ? `<tr><td colspan="2">GSTIN: ${esc(sale.customer.gstNumber)}</td></tr>` : ''}
     </table>
     <table class="box items" style="margin-top:3px">
-      <thead><tr><th>Code Product</th><th>MRP</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
-      <tbody>${items.map((i) => `<tr><td>${esc([i.sku, i.productName, i.size].filter(Boolean).join(' '))}${i.qty < 0 ? ` <b>(RETURN${i.returnOf?.invoiceNumber ? ` of Bill ${esc(i.returnOf.invoiceNumber)}` : ''})</b>` : ''}</td><td>${m(i.mrp || i.rate)}</td><td>${(Number(i.qty) || 0).toFixed(2)}</td><td>${m(i.rate)}</td><td>${m(i.amount)}</td></tr>`).join('')}</tbody>
+      <colgroup><col style="width:31%"><col style="width:19%"><col style="width:9%"><col style="width:19%"><col style="width:22%"></colgroup>
+      <thead><tr><th>Code / Item</th><th>MRP</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
+      <tbody>${items.map((i) => `<tr><td class="it"><div class="cd">${esc(i.sku || '')}</div><div class="nm">${esc([i.productName, i.size].filter(Boolean).join(' '))}${i.qty < 0 ? ` <b>(RETURN${i.returnOf?.invoiceNumber ? ` of Bill ${esc(i.returnOf.invoiceNumber)}` : ''})</b>` : ''}</div></td><td>${m(i.mrp || i.rate)}</td><td class="q">${qtyText(i.qty)}</td><td>${m(i.rate)}</td><td>${m(i.amount)}</td></tr>`).join('')}</tbody>
     </table>
     <table class="sum">
       ${row('Sub Total', m(t.subtotal))}
       ${row(`Discount${pctText(t.discount, soldValue(items)) ? ` (${pctText(t.discount, soldValue(items))})` : ''}`, m(t.discount))}
-      ${row('MRP Total', m(mrpTotal))}
       ${returned ? row('Return Items', m(returned)) : ''}
       ${t.roundOff ? row('Round Off', m(t.roundOff)) : ''}
-      ${t.grandTotal < 0 ? row('Refund', `₹${m(-t.grandTotal)}`, 'total') : row('Total', `₹${m(t.grandTotal)}`, 'total')}
+      <tr class="sp"><td colspan="2"></td></tr>
+      ${row('MRP Total', `₹${m(mrpTotal)}`, 'hl')}
+      <tr class="sp"><td colspan="2"></td></tr>
+      ${t.grandTotal < 0 ? row('Refund', `₹${m(-t.grandTotal)}`, 'total') : row('Total Amount', `₹${m(t.grandTotal)}`, 'total')}
+      ${Number(savings) > 0 ? `<tr class="sp"><td colspan="2"></td></tr>${row('Your Savings', `₹${m(savings)}`, 'hl')}` : ''}
     </table>
     ${noGst ? '' : `<table class="box gst">
       <tr class="h"><td colspan="2">GST Details</td></tr>
@@ -163,14 +173,13 @@ export function receiptHtml(inv, { width = '80', duplicate = false } = {}) {
         : `${row(`CGST (${g.r / 2}%)`, m(g.cgst))}${row(`SGST (${g.r / 2}%)`, m(g.sgst))}`) : ''}`).join('')}
     </table>`}
     <table class="foot">
-      ${policy.map((p) => `<tr><td colspan="2" class="b">${esc(p)}</td></tr>`).join('')}
       ${sale.payments.filter((p) => Number(p.amount)).map((p) => row(`${p.amount < 0 ? 'Refund by' : 'Paid by'} ${esc(BILL_MODE_NAMES[p.mode] || p.mode)}${p.reference ? ` (${esc(p.reference)})` : ''}`, m(Math.abs(p.amount)))).join('')}
       ${t.grandTotal < 0 ? '' : `${row('Amt.Paid', m(received))}${row('Balance', m(sale.changeReturned))}`}
-      ${row('Your Savings', m(savings))}
     </table>
     ${sale.loyaltyEarned ? `<div class="c">Loyalty points earned: ${sale.loyaltyEarned}</div>` : ''}
     <div class="thanks">${esc(settings?.invoice?.footerNote || 'Thank You! Visit Again!')}</div>
     <div class="c" style="margin-top:4px">${barcodeSvg(sale.invoiceNumber, { height: 26, width: w === 58 ? 1.1 : 1.3, fontSize: 9 })}</div>
+    <div class="policy">No Return Policy</div>
   </body></html>`;
 }
 
