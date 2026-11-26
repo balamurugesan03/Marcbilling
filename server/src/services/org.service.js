@@ -1,9 +1,12 @@
 // Company, Branch, Role and User management.
 const bcrypt = require('bcryptjs');
+const mongoose = require('mongoose');
 const {
-  Company, Branch, Role, User, RefreshToken, Permission, Customer, Stock, HeldBill,
+  Company, Branch, Role, User, RefreshToken, Permission, Customer, Stock, HeldBill, Counter, Supplier,
+  Product, ProductVariant, Barcode, LoyaltyTransaction, SaleItem, PurchaseItem, StockTransferItem,
   Sale, SaleReturn, Exchange, Purchase, PurchaseReturn, StockLedger, StockAdjustment, StockTransfer, Expense, Payment, CashSession,
 } = require('../models');
+const backup = require('./backup.service');
 const ApiError = require('../utils/ApiError');
 const { paginate, escapeRegex, pick } = require('../utils/common');
 const { PERMISSIONS, ALL_PERMISSIONS, LEGACY_PERMISSIONS } = require('../constants/permissions');
@@ -67,34 +70,100 @@ async function updateBranch(req, id, data) {
   return doc;
 }
 
-/** A branch can be deleted only while it has no bills, purchases, stock movements or other records of its own. */
+/** Customer bill totals recomputed from the bills that are left (after bills were deleted). */
+async function recomputeCustomers(companyIdIn, customerIds) {
+  const companyId = new mongoose.Types.ObjectId(String(companyIdIn));
+  for (const cid of customerIds) {
+    const [s] = await Sale.aggregate([
+      { $match: { companyId, customerId: cid, status: 'completed' } },
+      { $group: { _id: null, total: { $sum: '$totals.grandTotal' }, bills: { $sum: 1 }, last: { $max: '$invoiceDate' } } },
+    ]);
+    const [r] = await SaleReturn.aggregate([{ $match: { companyId, customerId: cid } }, { $group: { _id: null, total: { $sum: '$amount' } } }]);
+    await Customer.updateOne({ _id: cid }, { $set: { totalPurchases: s?.total || 0, totalBills: s?.bills || 0, lastPurchaseAt: s?.last || null, totalReturns: r?.total || 0 } });
+  }
+}
+
+/**
+ * Deletes a branch together with everything recorded in it: bills, returns, exchanges, purchases, stock,
+ * transfers, expenses, payments and cash sessions. A safety backup is taken first.
+ * Deleting the main branch makes the oldest remaining branch the main.
+ */
 async function deleteBranch(req, id) {
   await ensureMainBranch(req.companyId);
   const branch = await Branch.findOne({ _id: id, companyId: req.companyId }).lean();
   if (!branch) throw ApiError.notFound('Branch not found');
   if (req.allowedBranchIds && !req.allowedBranchIds.includes(String(id))) throw ApiError.forbidden('You do not have access to this branch');
-  if (branch.type === 'main' && await Branch.exists({ companyId: req.companyId, _id: { $ne: id } })) {
-    throw ApiError.badRequest('The main branch cannot be deleted. Set another branch as Main branch first');
+  if (!(await Branch.exists({ companyId: req.companyId, _id: { $ne: id } }))) {
+    throw ApiError.badRequest('This is the only branch, so it cannot be deleted. Use Clear all data (Backup page) to start fresh instead');
   }
-  const used = [
-    [Sale, 'bills'], [SaleReturn, 'sales returns'], [Exchange, 'exchanges'], [Purchase, 'purchases'], [PurchaseReturn, 'purchase returns'],
-    [StockLedger, 'stock entries'], [StockAdjustment, 'stock adjustments'], [Expense, 'expenses'], [Payment, 'payments'], [CashSession, 'cash sessions'],
-  ];
-  for (const [M, what] of used) {
-    if (await M.exists({ branchId: id })) throw ApiError.badRequest(`${branch.name} has ${what}, so it cannot be deleted. Mark it inactive instead`);
-  }
-  if (await StockTransfer.exists({ $or: [{ fromBranchId: id }, { toBranchId: id }] })) {
-    throw ApiError.badRequest(`${branch.name} has stock transfers, so it cannot be deleted. Mark it inactive instead`);
-  }
+  const safety = await backup.create(req, { type: 'pre_delete', notes: `Automatic backup before deleting branch ${branch.name}` });
+
+  const b = branch._id;
+  const sales = await Sale.find({ branchId: b }).select('_id customerId').lean();
+  const purchases = await Purchase.find({ branchId: b }).select('_id').lean();
+  const transfers = await StockTransfer.find({ $or: [{ fromBranchId: b }, { toBranchId: b }] }).select('_id').lean();
+  const affectedUsers = (await User.find({ companyId: req.companyId, $or: [{ branchIds: b }, { defaultBranchId: b }] }).select('_id').lean()).map((u) => u._id);
+  const customerIds = [...new Set(sales.map((s) => s.customerId && String(s.customerId)).filter(Boolean))].map((x) => new mongoose.Types.ObjectId(x));
   await Promise.all([
-    Stock.deleteMany({ branchId: id }),
-    HeldBill.deleteMany({ branchId: id }),
-    Customer.updateMany({ companyId: req.companyId, branchId: id }, { $unset: { branchId: 1 } }),
-    User.updateMany({ companyId: req.companyId, branchIds: id }, { $pull: { branchIds: id } }),
+    SaleItem.deleteMany({ $or: [{ branchId: b }, { saleId: { $in: sales.map((s) => s._id) } }] }),
+    Sale.deleteMany({ branchId: b }), SaleReturn.deleteMany({ branchId: b }), Exchange.deleteMany({ branchId: b }),
+    PurchaseItem.deleteMany({ $or: [{ branchId: b }, { purchaseId: { $in: purchases.map((p) => p._id) } }] }),
+    Purchase.deleteMany({ branchId: b }), PurchaseReturn.deleteMany({ branchId: b }),
+    StockTransferItem.deleteMany({ transferId: { $in: transfers.map((t) => t._id) } }),
+    StockTransfer.deleteMany({ _id: { $in: transfers.map((t) => t._id) } }),
+    StockLedger.deleteMany({ branchId: b }), StockAdjustment.deleteMany({ branchId: b }), Stock.deleteMany({ branchId: b }),
+    Expense.deleteMany({ branchId: b }), Payment.deleteMany({ branchId: b }), CashSession.deleteMany({ branchId: b }),
+    HeldBill.deleteMany({ branchId: b }), LoyaltyTransaction.deleteMany({ branchId: b }),
+    Customer.updateMany({ companyId: req.companyId, branchId: b }, { $unset: { branchId: 1 } }),
+    User.updateMany({ companyId: req.companyId, branchIds: b }, { $pull: { branchIds: b } }),
   ]);
-  await User.updateMany({ companyId: req.companyId, defaultBranchId: id }, { $unset: { defaultBranchId: 1 } });
-  await Branch.deleteOne({ _id: id });
-  await audit.log(req, { action: 'branch.delete', entity: 'Branch', entityId: id, refNo: branch.code, oldValue: branch });
+  await User.updateMany({ companyId: req.companyId, defaultBranchId: b }, { $unset: { defaultBranchId: 1 } });
+  await Branch.deleteOne({ _id: b });
+  if (branch.type === 'main') {
+    const next = await Branch.findOne({ companyId: req.companyId }).sort({ active: -1, createdAt: 1 }).lean();
+    if (next) await makeMain(req.companyId, next._id);
+  }
+  // users left with no branch get the main branch
+  const main = await Branch.findOne({ companyId: req.companyId, type: 'main' }).lean();
+  if (main && affectedUsers.length) {
+    await User.updateMany({ _id: { $in: affectedUsers }, branchIds: { $size: 0 } }, { $set: { branchIds: [main._id] } });
+    await User.updateMany({ _id: { $in: affectedUsers }, defaultBranchId: { $exists: false } }, [{ $set: { defaultBranchId: { $ifNull: [{ $first: '$branchIds' }, main._id] } } }]);
+  }
+  await recomputeCustomers(req.companyId, customerIds);
+  await audit.log(req, { action: 'branch.delete', entity: 'Branch', entityId: id, refNo: branch.code, oldValue: branch, newValue: { bills: sales.length, purchases: purchases.length, safetyBackup: safety.fileName } });
+  return { bills: sales.length, purchases: purchases.length, safetyBackup: safety.fileName };
+}
+
+/**
+ * Clears the company's data for a fresh start. Always: every bill, return, exchange, purchase, stock entry,
+ * transfer, adjustment, expense, payment, cash session, held bill, loyalty entry and number series.
+ * Optional: products (with variants, barcodes), customers, suppliers. Company, branches, users, roles,
+ * settings, categories and brands are kept. A safety backup is taken first.
+ */
+async function clearData(req, { products = false, customers = false, suppliers = false } = {}) {
+  const companyId = new mongoose.Types.ObjectId(String(req.companyId));
+  const safety = await backup.create(req, { type: 'pre_delete', notes: 'Automatic backup before Clear all data' });
+  const c = { companyId };
+  const counts = {};
+  const wipe = async (name, M) => { counts[name] = (await M.deleteMany(c)).deletedCount; };
+  await Promise.all([
+    wipe('bills', Sale), wipe('billItems', SaleItem), wipe('salesReturns', SaleReturn), wipe('exchanges', Exchange),
+    wipe('purchases', Purchase), wipe('purchaseItems', PurchaseItem), wipe('purchaseReturns', PurchaseReturn),
+    wipe('transfers', StockTransfer), wipe('transferItems', StockTransferItem), wipe('stockLedger', StockLedger),
+    wipe('adjustments', StockAdjustment), wipe('stock', Stock), wipe('expenses', Expense), wipe('payments', Payment),
+    wipe('cashSessions', CashSession), wipe('heldBills', HeldBill), wipe('loyalty', LoyaltyTransaction),
+  ]);
+  // number series start again from 1 (invoice, purchase, transfer… and barcodes when products go)
+  const keyRx = new RegExp(`^${companyId}:`);
+  const counterFilter = products ? { key: keyRx } : { key: keyRx, $nor: [{ key: new RegExp(`^${companyId}:barcode:`) }] };
+  counts.numberSeries = (await Counter.deleteMany(counterFilter)).deletedCount;
+  if (products) await Promise.all([wipe('products', Product), wipe('variants', ProductVariant), wipe('barcodes', Barcode)]);
+  if (customers) await wipe('customers', Customer);
+  else await Customer.updateMany(c, { $set: { loyaltyPoints: 0, outstanding: 0, storeCredit: 0, totalPurchases: 0, totalBills: 0, totalReturns: 0, lastPurchaseAt: null } });
+  if (suppliers) await wipe('suppliers', Supplier);
+  else await Supplier.updateMany(c, [{ $set: { balance: { $ifNull: ['$openingBalance', 0] } } }]);
+  await audit.log(req, { action: 'data.clear', entity: 'Company', entityId: companyId, newValue: { products, customers, suppliers, counts, safetyBackup: safety.fileName } });
+  return { counts, safetyBackup: safety.fileName };
 }
 
 /* ---------- Roles & permissions ---------- */
@@ -208,6 +277,6 @@ async function updateUser(req, id, data) {
 }
 
 module.exports = {
-  getCompany, updateCompany, listBranches, createBranch, updateBranch, deleteBranch,
+  getCompany, updateCompany, listBranches, createBranch, updateBranch, deleteBranch, clearData,
   listPermissions, listRoles, createRole, updateRole, deleteRole, listUsers, createUser, updateUser,
 };

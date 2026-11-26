@@ -5,7 +5,7 @@ const backupSchema = new Schema({
   size: Number,
   collections: Number,
   documents: Number,
-  type: { type: String, enum: ['manual', 'uploaded', 'pre_restore'], default: 'manual' },
+  type: { type: String, enum: ['manual', 'uploaded', 'pre_restore', 'pre_delete'], default: 'manual' },
   status: { type: String, enum: ['completed', 'failed'], default: 'completed' },
   createdBy: { type: Schema.Types.ObjectId, ref: 'User' },
   createdByName: String,

@@ -58,7 +58,8 @@ const CONFIG = {
   branches: {
     title: 'Branches', icon: Store, url: '/branches', perms: { create: ['branch.create'], edit: ['branch.edit'], delete: ['branch.delete'] }, noPaging: true,
     subtitle: 'One main branch, any number of sub branches — each keeps its own bills, stock and accounts',
-    deleteMessage: 'Only a branch with no bills, purchases or stock entries can be deleted — otherwise mark it inactive.',
+    deleteMessage: 'The branch and ALL its bills, returns, purchases, stock, transfers, expenses and payments will be deleted permanently. A safety backup is taken first. Deleting the main branch makes the next branch the main.',
+    deleteInput: true,
     fields: [
       { name: 'type', label: 'Branch type', type: 'select', options: [{ value: 'main', label: 'Main branch' }, { value: 'sub', label: 'Sub branch' }], hint: 'Only one main branch — choosing Main moves the current main under it' },
       { name: 'name', label: 'Branch name', required: true }, { name: 'code', label: 'Code', required: true, upper: true },
@@ -148,8 +149,13 @@ export default function Masters({ kind }) {
   const canDelete = !cfg.noDelete && cfg.perms.delete.length > 0 && can(...cfg.perms.delete);
   useEffect(() => { if (cfg.noPaging) get(cfg.url).then(setBranchRows).catch((e) => toast.error(errMsg(e))); }, [reloadKey, kind]);
   const remove = async (r) => {
-    if (!(await confirm({ title: `Delete ${r.name}?`, message: cfg.deleteMessage || 'Items in use cannot be deleted — mark them inactive instead.', danger: true, confirmText: 'Delete' }))) return;
-    try { await del(`${cfg.url}/${r._id}`); toast.success('Deleted'); setReloadKey((k) => k + 1); if (kind === 'branches') reloadBranches(); } catch (e) { toast.error(errMsg(e)); }
+    const ans = await confirm({ title: `Delete ${r.name}?`, message: cfg.deleteMessage || 'Items in use cannot be deleted — mark them inactive instead.', danger: true, confirmText: 'Delete',
+      ...(cfg.deleteInput ? { input: true, placeholder: 'Type DELETE to confirm' } : {}) });
+    if (!ans) return;
+    if (cfg.deleteInput && ans !== 'DELETE') { toast.error('Type DELETE (capital letters) to confirm'); return; }
+    try {
+      const res = await del(`${cfg.url}/${r._id}`);
+      toast.success(res?.safetyBackup ? `Deleted ${r.name} with ${res.bills} bills, ${res.purchases} purchases. Backup: ${res.safetyBackup}` : 'Deleted', { duration: 6000 }); setReloadKey((k) => k + 1); if (kind === 'branches') reloadBranches(); } catch (e) { toast.error(errMsg(e)); }
   };
   const columns = [...cfg.columns, (canEdit || canDelete) && {
     key: 'actions', label: '', render: (r) => (

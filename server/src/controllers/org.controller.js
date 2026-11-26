@@ -1,5 +1,6 @@
 const { asyncHandler } = require('../utils/common');
 const org = require('../services/org.service');
+const ApiError = require('../utils/ApiError');
 
 const ok = (res, data, status = 200) => res.status(status).json({ success: true, data });
 
@@ -11,7 +12,11 @@ module.exports = {
   listBranches: asyncHandler(async (req, res) => ok(res, await org.listBranches(req))),
   createBranch: asyncHandler(async (req, res) => ok(res, await org.createBranch(req, req.body), 201)),
   updateBranch: asyncHandler(async (req, res) => ok(res, await org.updateBranch(req, req.params.id, req.body))),
-  deleteBranch: asyncHandler(async (req, res) => { await org.deleteBranch(req, req.params.id); ok(res, true); }),
+  deleteBranch: asyncHandler(async (req, res) => ok(res, await org.deleteBranch(req, req.params.id))),
+  clearData: asyncHandler(async (req, res) => {
+    if (req.body?.confirm !== 'DELETE') throw ApiError.badRequest('Type DELETE to confirm');
+    ok(res, await org.clearData(req, { products: !!req.body.products, customers: !!req.body.customers, suppliers: !!req.body.suppliers }));
+  }),
 
   listPermissions: asyncHandler(async (req, res) => ok(res, await org.listPermissions())),
   listRoles: asyncHandler(async (req, res) => ok(res, await org.listRoles(req))),

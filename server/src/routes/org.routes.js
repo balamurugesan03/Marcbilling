@@ -10,6 +10,7 @@ const companies = express.Router();
 companies.get('/current', c.getCompany);
 companies.put('/current', permit('branch.edit'), validate(v.org.company), c.updateCompany);
 companies.post('/current/logo', permit('branch.edit'), imageUpload.single('logo'), c.uploadLogo);
+companies.post('/current/clear-data', permit('backup.manage'), c.clearData);
 
 const branches = express.Router();
 branches.get('/', c.listBranches);

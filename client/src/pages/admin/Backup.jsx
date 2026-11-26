@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import toast from 'react-hot-toast';
-import { DatabaseBackup, Download, RotateCcw, Trash2, Upload, Plus } from 'lucide-react';
+import { DatabaseBackup, Download, RotateCcw, Trash2, Upload, Plus, Eraser } from 'lucide-react';
 import api, { post, del, errMsg } from '../../lib/api';
 import { useAuth } from '../../store/auth';
 import { confirm } from '../../store/ui';
@@ -74,6 +74,40 @@ export default function Backup() {
             ))}</tbody>
           </table>
         )}
+      </div>
+      <ClearData busy={busy} setBusy={setBusy} onDone={reload} />
+    </div>
+  );
+}
+
+function ClearData({ busy, setBusy, onDone }) {
+  const [opt, setOpt] = useState({ products: true, customers: true, suppliers: true });
+  const toggle = (k) => setOpt((o) => ({ ...o, [k]: !o[k] }));
+  const run = async () => {
+    const what = ['all bills, returns, exchanges, purchases, stock, transfers, expenses, payments and cash sessions', opt.products && 'all products & barcodes', opt.customers && 'all customers', opt.suppliers && 'all suppliers'].filter(Boolean).join(', ');
+    const ans = await confirm({ title: 'Clear all data?', message: `This permanently deletes ${what} in every branch. Bill numbers start again from 1. A safety backup is taken first.`, danger: true, confirmText: 'Clear data', input: true, placeholder: 'Type DELETE to confirm' });
+    if (!ans) return;
+    if (ans !== 'DELETE') { toast.error('Type DELETE (capital letters) to confirm'); return; }
+    setBusy(true);
+    try {
+      const r = await post('/companies/current/clear-data', { ...opt, confirm: 'DELETE' }, { timeout: 600000 });
+      toast.success(`Data cleared. Safety backup: ${r.safetyBackup}`, { duration: 8000 });
+      onDone();
+    } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
+  };
+  return (
+    <div className="card mt-6 border border-rose-200 p-4 dark:border-rose-900">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 font-semibold text-rose-600"><Eraser className="h-4 w-4" /> Clear all data (fresh start)</div>
+          <div className="text-sm text-ink-500">Deletes every bill, return, purchase, stock entry, transfer, expense and payment. Company, branches, users, roles, settings, categories and brands are kept.</div>
+          <div className="mt-2 flex flex-wrap gap-4 text-sm">
+            <label className="flex items-center gap-1.5"><input type="checkbox" checked={opt.products} onChange={() => toggle('products')} /> Products &amp; barcodes</label>
+            <label className="flex items-center gap-1.5"><input type="checkbox" checked={opt.customers} onChange={() => toggle('customers')} /> Customers</label>
+            <label className="flex items-center gap-1.5"><input type="checkbox" checked={opt.suppliers} onChange={() => toggle('suppliers')} /> Suppliers</label>
+          </div>
+        </div>
+        <button type="button" className="btn-danger" disabled={busy} onClick={run}><Eraser className="h-4 w-4" /> {busy ? 'Working…' : 'Clear all data'}</button>
       </div>
     </div>
   );
