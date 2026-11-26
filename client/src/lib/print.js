@@ -94,10 +94,8 @@ export function receiptHtml(inv, { width = '80', duplicate = false } = {}) {
     const sum = (k) => rows.reduce((a, i) => a + (Number(i[k]) || 0), 0);
     return { r, taxable: sum('taxable'), cgst: sum('cgst'), sgst: sum('sgst'), igst: sum('igst') };
   });
-  const policy = [
-    settings?.returnPolicy?.enabled ? settings.returnPolicy.text : 'No Refund',
-    settings?.exchangePolicy?.enabled && settings.exchangePolicy.text,
-  ].filter(Boolean);
+  // return / exchange policy text is not printed on the bill; only "No Refund" when returns are off
+  const policy = settings?.returnPolicy?.enabled ? [] : ['No Refund'];
   const row = (k, v, cls = '') => `<tr class="${cls}"><td>${k}</td><td class="r">${v}</td></tr>`;
   // thermal printers fade thin strokes: heavy font, bold everywhere, pure black, solid rules
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(sale.invoiceNumber)}</title><style>
@@ -240,8 +238,6 @@ export function a4InvoiceHtml(inv, { duplicate = false } = {}) {
     <div class="footer">
       <div style="flex:1">
         <div class="b">${esc(settings?.invoice?.footerNote || 'Thank you!')}</div>
-        ${settings?.returnPolicy?.enabled ? `<div class="muted"><b>Return Policy:</b> ${esc(settings.returnPolicy.text)}</div>` : ''}
-        ${settings?.exchangePolicy?.enabled ? `<div class="muted"><b>Exchange Policy:</b> ${esc(settings.exchangePolicy.text)}</div>` : ''}
         ${settings?.invoice?.terms ? `<div class="muted">${esc(settings.invoice.terms)}</div>` : ''}
       </div>
       <div class="c" style="width:200px"><div style="height:50px"></div><div style="border-top:1px solid #111">Authorised Signatory</div><div class="muted">For ${esc(branchTitle(branch, company))}</div></div>
