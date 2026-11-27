@@ -391,8 +391,8 @@ function accLabelsHtml(labels, { storeName = '', fields: f, slots = [0], w = 75,
   const G0 = narrow
     ? { brandTop: M, brandH: 3.4, qrTop: 4.6, qr: 9.6, codeRowTop: 14.5, mrpTop: 17.2, netTop: 20 }
     : { brandTop: M, brandH: 3.8, qrTop: 5.0, qr: 10.8, mrpTop: 16.5, netTop: 19.5 };
-  // Accessories Final: heading and QR sit ~1 mm higher (heading near the top edge, QR right under it)
-  if (lift && narrow) Object.assign(G0, { brandTop: 0.3, brandH: 3.2, qrTop: 3.6 });
+  // Accessories Final: heading near the top edge, QR lifted right under it (only a small gap between them)
+  if (lift && narrow) Object.assign(G0, { brandTop: 0.3, brandH: 3.0, qrTop: 2.6 });
   const G = sy === 1 ? G0 : Object.fromEntries(Object.entries(G0).map(([k, v]) => [k, k === 'brandTop' ? v : v * sy]));
   G.qr = Math.min(G.qr, W - 2 * M - 4); // QR always fully inside its own sticker
   const gap = narrow ? 0.8 : W < 50 ? 1.2 : 1.8; // QR -> text
