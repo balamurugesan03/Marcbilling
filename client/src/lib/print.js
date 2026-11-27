@@ -373,7 +373,7 @@ export const accLrCalib = (c = {}) => {
   return { w: n(c.w, 25, 18, 30), h: n(c.h, 24, 15, 30), gapX: n(c.gapX, 0, 0, 6), offX: n(c.offX, 0, -3, 5), offY: n(c.offY, 0, -3, 3) };
 };
 
-function accLabelsHtml(labels, { storeName = '', fields: f, slots = [0], w = 75, calib = null }) {
+function accLabelsHtml(labels, { storeName = '', fields: f, slots = [0], w = 75, calib = null, lift = false }) {
   // Fixed grid (mm), the same margin on all four sides; every box clips its own text so nothing leaves its sticker.
   // slots: left edge (mm) of each sticker printed on one row; anything between them stays blank.
   // 3-column roll (calib given): stickers sit at offX, offX + (w + gap), offX + 2 (w + gap); left and right are printed,
@@ -391,6 +391,8 @@ function accLabelsHtml(labels, { storeName = '', fields: f, slots = [0], w = 75,
   const G0 = narrow
     ? { brandTop: M, brandH: 3.4, qrTop: 4.6, qr: 9.6, codeRowTop: 14.5, mrpTop: 17.2, netTop: 20 }
     : { brandTop: M, brandH: 3.8, qrTop: 5.0, qr: 10.8, mrpTop: 16.5, netTop: 19.5 };
+  // Accessories Final: heading and QR sit ~1 mm higher (heading near the top edge, QR right under it)
+  if (lift && narrow) Object.assign(G0, { brandTop: 0.3, brandH: 3.2, qrTop: 3.6 });
   const G = sy === 1 ? G0 : Object.fromEntries(Object.entries(G0).map(([k, v]) => [k, k === 'brandTop' ? v : v * sy]));
   G.qr = Math.min(G.qr, W - 2 * M - 4); // QR always fully inside its own sticker
   const gap = narrow ? 0.8 : W < 50 ? 1.2 : 1.8; // QR -> text
@@ -473,7 +475,7 @@ export function labelsHtml(labels, { size = '50x25', columns = 1, storeName = ''
   const s = LABEL_SIZES[size] || LABEL_SIZES['50x25'];
   if (s.design) {
     const f = { showStoreName: true, showProductName: true, showSku: true, showSizeColor: true, showMrp: true, showSellingPrice: true, ...fields };
-    return s.design === 'acc' ? accLabelsHtml(labels, { storeName, fields: f, slots: s.slots || [0], w: s.w, calib: size === 'ACC-LR' ? (accCalib || ACC_LR_CALIB) : size === 'ACC-FINAL' ? ACC_LR_CALIB : null }) : marcLabelsHtml(labels, { storeName, fields: f, cols: s.cols || 2 });
+    return s.design === 'acc' ? accLabelsHtml(labels, { storeName, fields: f, slots: s.slots || [0], w: s.w, calib: size === 'ACC-LR' ? (accCalib || ACC_LR_CALIB) : size === 'ACC-FINAL' ? ACC_LR_CALIB : null, lift: size === 'ACC-FINAL' }) : marcLabelsHtml(labels, { storeName, fields: f, cols: s.cols || 2 });
   }
   const small = s.h < 24;
   const f = { showStoreName: true, showProductName: true, showSku: true, showSizeColor: true, showMrp: true, showSellingPrice: true, ...fields };
